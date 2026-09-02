@@ -1,436 +1,345 @@
+function json(statusCode, bodyObj) {
+  return {
+    statusCode,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(bodyObj)
+  };
+}
+
+function extractOutputText(data) {
+  if (typeof data?.output_text === "string" && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  const parts = [];
+  for (const item of data?.output || []) {
+    for (const content of item?.content || []) {
+      if (typeof content?.text === "string") {
+        parts.push(content.text);
+      }
+    }
+  }
+
+  return parts.join("\n").trim();
+}
+
+function answersToList(answers) {
+  return Object.entries(answers || {})
+    .map(([k, v]) => `- ${k}: ${v}`)
+    .join("\n");
+}
+
+async function callResponsesAPI(key, { instructions, input, max_output_tokens = 1600 }) {
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${key}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "gpt-5.6",
+      instructions,
+      input,
+      max_output_tokens
+    })
+  });
+
+  const raw = await response.text();
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return { ok: false, status: 500, error: "OpenAI returned an unexpected response." };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: data?.error?.message || "OpenAI request failed."
+    };
+  }
+
+  return { ok: true, data };
+}
+
+function getTextInstructions(action) {
+  const sharedRules = `
+You are Gracefully Anchored Journal Studio.
+
+Create warm, elegant, Christian journal design outputs based on the user's approved selections.
+
+Rules:
+- Do not ask more questions.
+- If Surprise Me is selected, choose the strongest fitting option.
+- Keep the design cohesive, elegant, faith-centered, and print-friendly.
+- Do not invent Bible verses or references.
+- Keep writing-heavy pages spacious.
+- Coordinate fonts, colors, visual style, Christian elements, and decorative elements.
+- If a female character is included, keep her original and consistent.
+- Use clear headings and organized sections.
+`;
+
+  if (action === "blueprint") {
+    return sharedRules + `
+Create a concise but useful Christian journal blueprint.
+Include:
+- Project Overview
+- Design Profile
+- Suggested Front Matter
+- Journal Structure or Page Flow
+- Several detailed page ideas/prompts
+- Suggested Page Count
+`;
+  }
+
+  if (action === "page-prompts") {
+    return sharedRules + `
+Expand the existing blueprint into detailed image/page prompts.
+Create clear section headings.
+Give multiple well-structured prompts the user could copy into an image generator.
+Keep each prompt practical, polished, and spacious.
+`;
+  }
+
+  if (action === "cover-prompts") {
+    return sharedRules + `
+Create FRONT COVER PROMPT and BACK COVER PROMPT.
+Coordinate the palette, visual style, typography mood, and Christian elements.
+If a back-cover Scripture is not given, suggest a tasteful back-cover layout without inventing a verse.
+`;
+  }
+
+  if (action === "print-map") {
+    return sharedRules + `
+Create an exact page-by-page print map.
+Show page number, left/right placement, facing-page pairs, section dividers, repeated pages, and total page count.
+`;
+  }
+
+  if (action === "marketing") {
+    return sharedRules + `
+Create marketing extras with clear headings:
+- Sales blurb
+- Short product description
+- SEO keywords
+- Social captions
+Keep them aligned with the project theme and audience.
+`;
+  }
+
+  if (action === "revise") {
+    return sharedRules + `
+Revise and improve the existing blueprint.
+Make it cleaner, more cohesive, and more polished while preserving the approved direction.
+`;
+  }
+
+  return sharedRules;
+}
+
+function buildTextInput(action, answers, blueprint) {
+  const project = answersToList(answers);
+
+  if (action === "blueprint") {
+    return `Create the Gracefully Anchored blueprint from these selections:\n\n${project}`;
+  }
+
+  return `
+Use these approved selections and the current blueprint.
+
+APPROVED SELECTIONS:
+${project}
+
+CURRENT BLUEPRINT:
+${blueprint || "No blueprint provided."}
+
+Create the requested output for action: ${action}
+  `.trim();
+}
+
+function getImageSourceLabel(sourceAction) {
+  if (sourceAction === "cover-prompts") return "Generated Cover Preview";
+  if (sourceAction === "page-prompts") return "Generated Page Preview";
+  if (sourceAction === "revise") return "Generated Revised Preview";
+  return "Generated Project Preview";
+}
+
+async function buildImagePrompt(key, answers, sourceText, sourceAction) {
+  const instructions = `
+You are Gracefully Anchored Image Prompt Studio.
+
+Turn the project context into ONE polished image-generation prompt for a single elegant preview image.
+
+Rules:
+- Return only the final image prompt text. No markdown. No headings. No explanations.
+- Create one visually rich representative image.
+- If the source is a set of page prompts, choose the strongest single page concept.
+- If the source is cover prompts, prioritize the front cover.
+- If the source is a blueprint, choose the strongest representative preview, usually a front cover or hero interior page.
+- Preserve the approved title, visual style, colors, Christian symbolism, character details, and overall mood when available.
+- Keep the image aesthetically polished, premium, feminine where appropriate, and print-friendly.
+- Prefer portrait composition unless the content clearly suggests otherwise.
+- If text is included in the image, render only the main title and short subtitle or short phrase when appropriate. Avoid long body text.
+- Avoid mockups, watermarks, fake brands, random letters, and clutter.
+- Keep the prompt under 350 words.
+`;
+
+  const input = `
+SOURCE ACTION:
+${sourceAction || "blueprint"}
+
+APPROVED SELECTIONS:
+${answersToList(answers)}
+
+SOURCE CONTENT:
+${sourceText || "No source content provided."}
+  `.trim();
+
+  const promptResponse = await callResponsesAPI(key, {
+    instructions,
+    input,
+    max_output_tokens: 700
+  });
+
+  if (!promptResponse.ok) return promptResponse;
+
+  const imagePrompt = extractOutputText(promptResponse.data);
+
+  if (!imagePrompt) {
+    return { ok: false, status: 500, error: "The image prompt could not be created." };
+  }
+
+  return { ok: true, imagePrompt };
+}
+
+function pickImageSize(answers) {
+  const size = String(answers?.size || "").toLowerCase();
+
+  if (
+    size.includes("8.5 x 11") ||
+    size.includes("8 x 10") ||
+    size.includes("6 x 9") ||
+    size.includes("a4")
+  ) {
+    return "1024x1536";
+  }
+
+  return "1024x1536";
+}
+
+async function generateImage(key, prompt, size) {
+  const response = await fetch("https://api.openai.com/v1/images/generations", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${key}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "gpt-image-1",
+      prompt,
+      size
+    })
+  });
+
+  const raw = await response.text();
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return { ok: false, status: 500, error: "Image generation returned an unexpected response." };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      error: data?.error?.message || "Image generation failed."
+    };
+  }
+
+  const imageBase64 = data?.data?.[0]?.b64_json;
+  if (!imageBase64) {
+    return { ok: false, status: 500, error: "No image data was returned." };
+  }
+
+  return {
+    ok: true,
+    imageBase64,
+    mimeType: "image/png"
+  };
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod !== "POST") {
-    return {
-      statusCode: 405,
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        error: "Method not allowed"
-      })
-    };
+    return json(405, { error: "Method not allowed" });
   }
 
   try {
+    const body = JSON.parse(event.body || "{}");
     const {
-      answers,
+      answers = {},
       action = "blueprint",
-      blueprint = ""
-    } = JSON.parse(event.body || "{}");
+      blueprint = "",
+      sourceText = "",
+      sourceAction = "blueprint"
+    } = body;
 
-    if (!process.env.OPENAI_API_KEY) {
-      return {
-        statusCode: 500,
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          error: "OPENAI_API_KEY is not set in Netlify."
-        })
-      };
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) {
+      return json(500, { error: "OPENAI_API_KEY is not set in Netlify." });
     }
 
-    const project = Object.entries(answers || {})
-      .map(([key, value]) => `- ${key}: ${value}`)
-      .join("\n");
-
-    let instructions = "";
-
-    if (action === "blueprint") {
-      instructions = `
-You are Gracefully Anchored Journal Studio.
-
-Create a concise master blueprint for the user's approved Christian journal, devotional, workbook, or coordinated cover project.
-
-Do not create the entire finished product yet.
-
-Use the approved selections exactly.
-
-If "Surprise Me" was selected, choose the strongest fit based on the project.
-
-Do not invent Bible verses or Bible references.
-
-For a complete journal, devotional, or workbook, return:
-
-# PROJECT OVERVIEW
-- Title
-- Optional subtitle
-- Product type
-- Theme
-- Audience
-- Purpose
-
-# DESIGN PROFILE
-- Size
-- Style
-- Color direction
-- Typography
-- Visual style
-- Character direction if applicable
-- Christian elements
-- Overall mood
-
-# FRONT MATTER
-List recommended or selected opening pages.
-
-# JOURNAL STRUCTURE
-Create a concise section-by-section outline.
-
-# PAGE-BY-PAGE OUTLINE
-List page titles and their purpose only.
-
-# SUGGESTED PAGE COUNT
-Give an estimated interior page count.
-
-Keep this response concise and practical.
-`;
-    }
-
-    else if (action === "page-prompts") {
-      instructions = `
-You are Gracefully Anchored Journal Studio.
-
-Using the approved project selections and existing blueprint, create detailed page prompts.
-
-Do not redesign the project.
-
-Maintain the approved:
-- title
-- theme
-- audience
-- dimensions
-- visual style
-- colors
-- typography
-- Christian elements
-- character direction
-
-For each page include:
-
-# PAGE TITLE
-
-Page Purpose:
-Dimensions:
-Orientation:
-Background:
-Color Palette:
-Typography:
-Exact Text Requirements:
-Writing Space:
-Visual Elements:
-Character Placement if applicable:
-Christian Symbolism:
-Decorative Elements:
-Safe Margins:
-
-Then provide:
-
-## IMAGE GENERATION PROMPT
-
-Make each page visually coordinated but not identical.
-
-Keep writing-heavy pages spacious.
-
-Do not invent Scripture.
-
-Include:
-No floating page.
-No notebook mockup.
-No spiral binding.
-No hands holding the page.
-No desk preview.
-No poster presentation.
-No magazine spread.
-No watermark.
-No random text.
-No decorations covering important text.
-No clutter over writing areas.
-`;
-    }
-
-    else if (action === "cover-prompts") {
-      instructions = `
-You are Gracefully Anchored Journal Studio.
-
-Using the approved project selections and existing blueprint, create coordinated FRONT and BACK cover prompts.
-
-Maintain the exact approved title, theme, audience, colors, fonts, style, and character direction.
-
-Return:
-
-# FRONT COVER PROMPT
-Include:
-- dimensions
-- orientation
-- title placement
-- subtitle placement
-- typography
-- palette
-- focal imagery
-- character if applicable
-- Christian symbolism
-- decorative elements
-- safe margins
-- print-friendly composition
-
-# BACK COVER PROMPT
-Coordinate visually with the front.
-
-Include:
-- matching palette
-- matching decorative language
-- space for back-cover text
-- Scripture placement if a Scripture was approved
-- barcode-safe area
-
-Do not invent Scripture wording.
-`;
-    }
-
-    else if (action === "print-map") {
-      instructions = `
-You are Gracefully Anchored Journal Studio.
-
-Using the approved project selections and existing blueprint, create a complete print map.
-
-Include:
-
-# PRINT MAP
-
-For every page show:
-- Page number
-- LEFT or RIGHT
-- Page title
-- Page purpose
-- Facing-page relationship if relevant
-
-Rules:
-- Odd-numbered pages are normally RIGHT.
-- Even-numbered pages are normally LEFT.
-- Include front matter.
-- Include section dividers.
-- Include repeating pages.
-- Include intentional blank pages if needed.
-- Include closing pages.
-- Verify the final page count.
-
-End with:
-
-TOTAL INTERIOR PAGE COUNT:
-`;
-    }
-
-    else if (action === "marketing") {
-      instructions = `
-You are Gracefully Anchored Journal Studio.
-
-Using the approved project selections and existing blueprint, create coordinated marketing extras.
-
-Return:
-
-# MOCKUP PROMPTS
-Create 3 professional product mockup prompts.
-
-# SALES PAGE
-Include:
-- headline
-- short introduction
-- benefits
-- product details
-- ideal audience
-- call to action
-
-# SEO DESCRIPTION
-Create one concise SEO-friendly product description.
-
-# KEYWORDS
-Provide relevant keywords.
-
-# SOCIAL MEDIA
-Create promotional captions for:
-- Facebook
-- Instagram
-- Pinterest
-- TikTok
-
-Keep everything consistent with the journal title, theme, audience, colors, style, and Christian focus.
-`;
-    }
-
-    else if (action === "revise") {
-      instructions = `
-You are Gracefully Anchored Journal Studio.
-
-Review the existing blueprint and improve it without changing the user's approved project selections.
-
-Improve:
-- clarity
-- organization
-- page flow
-- consistency
-- usefulness
-- Christian tone
-- design cohesion
-
-Return a cleaner revised blueprint.
-
-Do not make unnecessary changes to the approved title, theme, audience, style, or dimensions.
-`;
-    }
-
-    else {
-      instructions = `
-You are Gracefully Anchored Journal Studio.
-
-Continue developing the approved project using the existing blueprint and user selections.
-
-Stay consistent with all approved choices.
-`;
-    }
-
-    const context = `
-APPROVED PROJECT SELECTIONS:
-
-${project}
-
-EXISTING BLUEPRINT:
-
-${blueprint || "No previous blueprint supplied."}
-`;
-
-    const response = await fetch(
-      "https://api.openai.com/v1/responses",
-      {
-        method: "POST",
-
-        headers: {
-          "Authorization":
-            `Bearer ${process.env.OPENAI_API_KEY}`,
-
-          "Content-Type":
-            "application/json"
-        },
-
-        body: JSON.stringify({
-          model: "gpt-5.6-luna",
-
-          reasoning: {
-            effort: "none"
-          },
-
-          max_output_tokens:
-  action === "page-prompts"
-    ? 2200
-    : 1800,
-          instructions:
-            instructions,
-
-          input:
-            context
-        })
+    if (action === "generate-image") {
+      const promptResult = await buildImagePrompt(
+        key,
+        answers,
+        sourceText || blueprint,
+        sourceAction
+      );
+
+      if (!promptResult.ok) {
+        return json(promptResult.status || 500, { error: promptResult.error || "Image prompt creation failed." });
       }
-    );
 
-    const raw =
-      await response.text();
+      const size = pickImageSize(answers);
+      const imageResult = await generateImage(key, promptResult.imagePrompt, size);
 
-    let data;
+      if (!imageResult.ok) {
+        return json(imageResult.status || 500, { error: imageResult.error || "Image generation failed." });
+      }
 
-    try {
-      data = JSON.parse(raw);
+      return json(200, {
+        image_base64: imageResult.imageBase64,
+        mime_type: imageResult.mimeType,
+        image_prompt: promptResult.imagePrompt,
+        source_label: getImageSourceLabel(sourceAction)
+      });
     }
 
-    catch (error) {
-      return {
-        statusCode: 500,
+    const instructions = getTextInstructions(action);
+    const input = buildTextInput(action, answers, blueprint);
 
-        headers: {
-          "Content-Type":
-            "application/json"
-        },
+    const textResult = await callResponsesAPI(key, {
+      instructions,
+      input,
+      max_output_tokens: action === "blueprint" ? 2200 : 2400
+    });
 
-        body: JSON.stringify({
-          error:
-            "OpenAI returned an unexpected response."
-        })
-      };
+    if (!textResult.ok) {
+      return json(textResult.status || 500, { error: textResult.error || "OpenAI request failed." });
     }
 
-    if (!response.ok) {
-      return {
-        statusCode:
-          response.status,
+    const output = extractOutputText(textResult.data);
 
-        headers: {
-          "Content-Type":
-            "application/json"
-        },
-
-        body: JSON.stringify({
-          error:
-            data &&
-            data.error &&
-            data.error.message
-              ? data.error.message
-              : "OpenAI request failed."
-        })
-      };
-    }
-
-    let output =
-      data.output_text || "";
-
-    if (
-      !output &&
-      Array.isArray(data.output)
-    ) {
-      output =
-        data.output
-          .flatMap(
-            item =>
-              item.content || []
-          )
-          .map(
-            item =>
-              item.text || ""
-          )
-          .join("\n");
-    }
-
-    return {
-      statusCode: 200,
-
-      headers: {
-        "Content-Type":
-          "application/json"
-      },
-
-      body:
-        JSON.stringify({
-          output:
-            output ||
-            "No content was returned."
-        })
-    };
-  }
-
-  catch (error) {
-    return {
-      statusCode: 500,
-
-      headers: {
-        "Content-Type":
-          "application/json"
-      },
-
-      body:
-        JSON.stringify({
-          error:
-            error &&
-            error.message
-              ? error.message
-              : "Generation failed."
-        })
-    };
+    return json(200, {
+      output: output || "No output returned."
+    });
+  } catch (error) {
+    return json(500, {
+      error: error?.message || "Unexpected server error."
+    });
   }
 };
