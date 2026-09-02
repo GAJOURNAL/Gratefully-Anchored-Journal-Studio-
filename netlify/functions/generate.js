@@ -319,10 +319,9 @@ ${blueprint || "No previous blueprint supplied."}
           },
 
           max_output_tokens:
-            action === "page-prompts"
-              ? 1800
-              : 1200,
-
+  action === "page-prompts"
+    ? 2200
+    : 1800,
           instructions:
             instructions,
 
