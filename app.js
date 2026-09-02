@@ -831,16 +831,19 @@ async function generate(action) {
 
     if (!r.ok) throw new Error(data.error || 'Generation failed');
 
-    output.textContent = data.output || 'No output returned';
+    const generatedText = data.output || 'No output returned';
 
     if (action === 'blueprint') {
-      state.blueprint = data.output || '';
+      state.blueprint = generatedText;
       saveCurrentProject();
     }
+
+    renderStyledOutput(generatedText, action);
 
     result.classList.remove('hidden');
     renderNextStepButtons();
   } catch (e) {
+    resetOutputToPlainText();
     output.textContent = 'Error: ' + e.message;
     result.classList.remove('hidden');
   }
@@ -879,6 +882,303 @@ function renderNextStepButtons() {
 
   document.getElementById('openSavedProjects').onclick = renderSavedProjects;
 }
+
+
+/* ---------------------------
+   STYLED OUTPUT
+---------------------------- */
+
+function resetOutputToPlainText() {
+  output.dataset.rawText = '';
+  output.style.whiteSpace = 'pre-wrap';
+  output.style.fontFamily = 'inherit';
+  output.style.background = '';
+  output.style.padding = '';
+  output.style.borderRadius = '';
+  output.innerHTML = '';
+}
+
+function renderStyledOutput(text, action = 'blueprint') {
+  const raw = String(text || '');
+  output.dataset.rawText = raw;
+
+  output.style.whiteSpace = 'normal';
+  output.style.fontFamily = 'inherit';
+  output.style.background = 'transparent';
+  output.style.padding = '0';
+  output.style.borderRadius = '0';
+
+  const sections = splitIntoSections(raw);
+
+  if (!sections.length) {
+    output.innerHTML = styledParagraphs(raw);
+    return;
+  }
+
+  const title =
+    action === 'blueprint'
+      ? 'Your Gracefully Anchored Blueprint'
+      : action === 'page-prompts'
+      ? 'Detailed Page Prompts'
+      : action === 'cover-prompts'
+      ? 'Front + Back Cover Prompts'
+      : action === 'print-map'
+      ? 'Print Map'
+      : action === 'marketing'
+      ? 'Marketing Extras'
+      : action === 'revise'
+      ? 'Revised Blueprint'
+      : 'Your Results';
+
+  output.innerHTML = `
+    <span style="
+      display:block;
+      margin:0 0 18px;
+      padding:18px 20px;
+      border:1px solid rgba(36,56,95,.16);
+      border-radius:18px;
+      background:linear-gradient(180deg,#fffdf9 0%,#f8f5ef 100%);
+      box-shadow:0 8px 24px rgba(36,56,95,.07);
+    ">
+      <span style="
+        display:block;
+        font-family:Georgia,'Times New Roman',serif;
+        font-size:1.4rem;
+        line-height:1.25;
+        font-weight:700;
+        color:#24385f;
+        margin-bottom:5px;
+      ">${html(title)}</span>
+
+      <span style="
+        display:block;
+        font-size:.92rem;
+        line-height:1.5;
+        opacity:.72;
+      ">Organized into clean sections for easier reading and copying.</span>
+    </span>
+
+    ${sections.map((section, index) => `
+      <span style="
+        display:block;
+        margin:0 0 16px;
+        padding:18px 20px;
+        border:1px solid rgba(36,56,95,.14);
+        border-radius:16px;
+        background:#ffffff;
+        box-shadow:0 6px 18px rgba(36,56,95,.055);
+      ">
+        <span style="
+          display:flex;
+          align-items:center;
+          justify-content:space-between;
+          gap:12px;
+          margin-bottom:12px;
+          padding-bottom:10px;
+          border-bottom:1px solid rgba(36,56,95,.10);
+        ">
+          <span style="
+            display:block;
+            font-family:Georgia,'Times New Roman',serif;
+            font-size:1.08rem;
+            line-height:1.3;
+            font-weight:700;
+            color:#24385f;
+          ">${html(cleanHeading(section.heading || `Section ${index + 1}`))}</span>
+
+          <button
+            type="button"
+            class="section-copy-button"
+            data-section-index="${index}"
+            style="
+              flex:0 0 auto;
+              border:1px solid rgba(36,56,95,.20);
+              border-radius:999px;
+              padding:7px 11px;
+              background:#f7f3ea;
+              color:#24385f;
+              font-size:.78rem;
+              font-weight:700;
+              cursor:pointer;
+            "
+          >Copy</button>
+        </span>
+
+        <span style="
+          display:block;
+          font-size:.96rem;
+          line-height:1.68;
+          color:#333;
+        ">${styledParagraphs(section.body)}</span>
+      </span>
+    `).join('')}
+  `;
+
+  document.querySelectorAll('.section-copy-button').forEach(button => {
+    button.onclick = async () => {
+      const index = Number(button.dataset.sectionIndex);
+      const section = sections[index];
+      if (!section) return;
+
+      const copyText =
+        `${cleanHeading(section.heading || '')}\n\n${stripMarkdown(section.body)}`.trim();
+
+      await navigator.clipboard.writeText(copyText);
+
+      const oldText = button.textContent;
+      button.textContent = 'Copied';
+      setTimeout(() => {
+        button.textContent = oldText;
+      }, 1200);
+    };
+  });
+}
+
+function splitIntoSections(text) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n');
+  const sections = [];
+
+  let currentHeading = '';
+  let currentBody = [];
+
+  const pushCurrent = () => {
+    const body = currentBody.join('\n').trim();
+
+    if (currentHeading || body) {
+      sections.push({
+        heading: currentHeading || 'Overview',
+        body
+      });
+    }
+
+    currentBody = [];
+  };
+
+  for (const line of lines) {
+    const headingMatch =
+      line.match(/^\s{0,3}#{1,6}\s+(.+?)\s*$/);
+
+    if (headingMatch) {
+      pushCurrent();
+      currentHeading = headingMatch[1].trim();
+      continue;
+    }
+
+    const allCapsHeading =
+      line.trim().length >= 4 &&
+      line.trim().length <= 70 &&
+      /^[A-Z0-9 &+\-/:()]+$/.test(line.trim()) &&
+      !line.trim().startsWith('-');
+
+    if (allCapsHeading && currentBody.length) {
+      pushCurrent();
+      currentHeading = line.trim();
+      continue;
+    }
+
+    currentBody.push(line);
+  }
+
+  pushCurrent();
+
+  return sections.filter(section =>
+    section.heading.trim() || section.body.trim()
+  );
+}
+
+function styledParagraphs(text) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n');
+  let htmlOut = '';
+  let inList = false;
+
+  const closeList = () => {
+    if (inList) {
+      htmlOut += '</span>';
+      inList = false;
+    }
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (!line) {
+      closeList();
+      htmlOut += '<span style="display:block;height:8px;"></span>';
+      continue;
+    }
+
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+
+    if (bullet) {
+      if (!inList) {
+        htmlOut += '<span style="display:block;margin:5px 0 8px;">';
+        inList = true;
+      }
+
+      htmlOut += `
+        <span style="
+          display:block;
+          position:relative;
+          padding-left:18px;
+          margin:5px 0;
+        ">
+          <span style="
+            position:absolute;
+            left:2px;
+            top:0;
+            color:#8a7448;
+            font-weight:700;
+          ">•</span>
+          ${inlineMarkdown(bullet[1])}
+        </span>
+      `;
+      continue;
+    }
+
+    closeList();
+
+    htmlOut += `
+      <span style="display:block;margin:5px 0;">
+        ${inlineMarkdown(line)}
+      </span>
+    `;
+  }
+
+  closeList();
+  return htmlOut;
+}
+
+function inlineMarkdown(text) {
+  let safe = html(text);
+
+  safe = safe.replace(
+    /\*\*(.+?)\*\*/g,
+    '<strong style="color:#24385f;">$1</strong>'
+  );
+
+  safe = safe.replace(
+    /\*(.+?)\*/g,
+    '<em>$1</em>'
+  );
+
+  return safe;
+}
+
+function cleanHeading(text) {
+  return String(text || '')
+    .replace(/^[#\s]+/, '')
+    .replace(/\*\*/g, '')
+    .trim();
+}
+
+function stripMarkdown(text) {
+  return String(text || '')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*/g, '')
+    .replace(/\*/g, '')
+    .trim();
+}
+
 
 /* ---------------------------
    SAVED PROJECTS / CHARACTERS
@@ -976,7 +1276,7 @@ function renderSavedProjects() {
       state.blueprint = p.blueprint || '';
       state.currentProjectId = p.id;
       state.step = buildQuestions().length;
-      output.textContent = state.blueprint;
+      renderStyledOutput(state.blueprint, 'blueprint');
       renderSummary();
       result.classList.remove('hidden');
       renderNextStepButtons();
@@ -1004,6 +1304,7 @@ function startNewProject() {
   state.titleTheme = '';
   ui.pageByQuestion = {};
   ui.multiByQuestion = {};
+  resetOutputToPlainText();
   output.textContent = '';
   result.classList.add('hidden');
   render();
@@ -1031,7 +1332,12 @@ function attr(value) {
 }
 
 document.getElementById('copyBtn').onclick = () => {
-  navigator.clipboard.writeText(output.textContent);
+  const textToCopy =
+    output.dataset.rawText ||
+    output.textContent ||
+    '';
+
+  navigator.clipboard.writeText(textToCopy);
 };
 
 render();
