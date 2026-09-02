@@ -830,7 +830,12 @@ async function generate(action) {
       sourceAction: state.lastTextAction || 'blueprint'
     };
 
-    const r = await fetch('/.netlify/functions/generate', {
+    const endpoint =
+      action === 'generate-image'
+        ? '/.netlify/functions/generate-image'
+        : '/.netlify/functions/generate';
+
+    const r = await fetch(endpoint, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(payload)
