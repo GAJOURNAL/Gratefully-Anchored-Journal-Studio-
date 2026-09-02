@@ -10,6 +10,8 @@ const state = {
   i: 0,
   a: {},
   titleGroup: 0,
+  titlePool: [],
+  titleTheme: '',
   blueprint: '',
   currentProjectId: null,
   currentCharacterId: null
@@ -97,6 +99,11 @@ const skinTones = [
   'Olive',
   'Let me describe it',
   'Surprise Me'
+];
+
+const skinToneGroups = [
+  ['Deep Ebony', 'Deep Espresso', 'Deep Cocoa', 'Rich Brown', 'Medium Brown', 'Surprise Me'],
+  ['Caramel', 'Honey', 'Olive', 'Let me describe it']
 ];
 
 const hairGroups = [
@@ -339,13 +346,13 @@ function getQuestions() {
 
     if (state.a.characterMode === 'Quick Customization') {
       q.push(
-        { id:'skinTone', q:'What skin tone would you like?', type:'paged-choice', groups:chunk(skinTones, 6) },
+        { id:'skinTone', q:'What complexion / skin tone would you like?', type:'paged-choice', groups:skinToneGroups },
         { id:'hair', q:'What hair look would you like?', type:'paged-choice', groups:hairGroups },
         { id:'clothingStyle', q:'What clothing style would you like?', type:'paged-choice', groups:chunk(clothingStyles, 6) },
         { id:'mood', q:'What mood or expression would you like?', type:'paged-choice', groups:chunk(moods, 6) },
         { id:'illustrationStyle', q:'What illustration style would you like?', type:'paged-choice', groups:chunk(illustrationStyles, 6) },
         { id:'outfitColors', q:'How would you like to choose her outfit colors?', o:outfitColorChoices },
-        { id:'accessories', q:'What accessories would you like?', type:'paged-choice', groups:chunk(accessories, 6) }
+        { id:'accessories', q:'What accessories would you like? Select one or more, then press Done.', type:'multi-paged-choice', groups:chunk(accessories, 6) }
       );
     }
 
@@ -356,11 +363,11 @@ function getQuestions() {
           q:'What age appearance would you like?',
           o:['20s','30s','40s','50s','60+','Let the studio choose','Surprise Me']
         },
-        { id:'skinTone', q:'What skin tone would you like?', type:'paged-choice', groups:chunk(skinTones, 6) },
+        { id:'skinTone', q:'What complexion / skin tone would you like?', type:'paged-choice', groups:skinToneGroups },
         { id:'hair', q:'What hair look would you like?', type:'paged-choice', groups:hairGroups },
         { id:'clothingStyle', q:'What clothing style would you like?', type:'paged-choice', groups:chunk(clothingStyles, 6) },
         { id:'outfitColors', q:'How would you like to choose her outfit colors?', o:outfitColorChoices },
-        { id:'accessories', q:'What accessories would you like?', type:'paged-choice', groups:chunk(accessories, 6) },
+        { id:'accessories', q:'What accessories would you like? Select one or more, then press Done.', type:'multi-paged-choice', groups:chunk(accessories, 6) },
         { id:'mood', q:'What mood or expression would you like?', type:'paged-choice', groups:chunk(moods, 6) },
         { id:'illustrationStyle', q:'What illustration style would you like?', type:'paged-choice', groups:chunk(illustrationStyles, 6) },
         {
@@ -605,6 +612,8 @@ function startNewProject() {
   state.i = 0;
   state.a = {};
   state.titleGroup = 0;
+  state.titlePool = [];
+  state.titleTheme = '';
   state.blueprint = '';
   state.currentProjectId = null;
   state.currentCharacterId = null;
@@ -685,38 +694,148 @@ function renderSavedProjects() {
    TITLE OPTIONS
 ========================================================= */
 
-function getTitleGroups() {
+function getTitleBank() {
   const theme = (state.a.theme || '').toLowerCase();
 
   if (theme.includes('healing')) return [
-    ['Healing in His Presence','Grace for the Healing Journey','Held While I Heal','Restored by Faith'],
-    ['God Meets Me Here','Healing One Day at a Time','Grace in the Broken Places','Renewed in His Presence']
+    'Healing in His Presence',
+    'Grace for the Healing Journey',
+    'Held While I Heal',
+    'Restored by Faith',
+    'God Meets Me Here',
+    'Healing One Day at a Time',
+    'Grace in the Broken Places',
+    'Renewed in His Presence',
+    'Held by Grace',
+    'The Gentle Healing Journey',
+    'Rest for My Heart',
+    'Restored in His Love',
+    'Hope for the Healing Heart',
+    'Where Grace Meets Healing',
+    'Mended in His Presence',
+    'Healing with God'
   ];
 
   if (theme.includes('prayer')) return [
-    ['In His Presence','A Life of Prayer','Draw Near','Prayers from the Heart'],
-    ['My Quiet Place with God','Grace in the Secret Place','Covered in Prayer','When I Talk to God']
+    'In His Presence',
+    'A Life of Prayer',
+    'Draw Near',
+    'Prayers from the Heart',
+    'My Quiet Place with God',
+    'Grace in the Secret Place',
+    'Covered in Prayer',
+    'When I Talk to God',
+    'Anchored in Prayer',
+    'Whispers to Heaven',
+    'Praying Through the Journey',
+    'At His Feet',
+    'A Heart That Prays',
+    'Sacred Conversations',
+    'Still Before Him',
+    'Prayer Changes Everything'
   ];
 
   if (theme.includes('gratitude')) return [
-    ['Counting Blessings','A Grateful Heart','Grace & Gratitude','Thankful in His Presence'],
-    ['Blessed Beyond Measure','Everyday Gratitude','Gifts of Grace','Joy in the Little Things']
+    'Counting Blessings',
+    'A Grateful Heart',
+    'Grace & Gratitude',
+    'Thankful in His Presence',
+    'Blessed Beyond Measure',
+    'Everyday Gratitude',
+    'Gifts of Grace',
+    'Joy in the Little Things',
+    'Grateful for Today',
+    'Blessings I Almost Missed',
+    'Thankful Always',
+    'A Life of Thanksgiving',
+    'Grace Upon Grace',
+    'Gathering God’s Goodness',
+    'My Gratitude Journey',
+    'Joyfully Thankful'
   ];
 
   if (theme.includes('faith')) return [
-    ['Faith Over Fear','Anchored in Faith','Walking by Faith','Courage Through Christ'],
-    ['Fearless Through Him','Rooted in His Promises','Faith That Holds','Standing on His Word']
+    'Faith Over Fear',
+    'Anchored in Faith',
+    'Walking by Faith',
+    'Courage Through Christ',
+    'Fearless Through Him',
+    'Rooted in His Promises',
+    'Faith That Holds',
+    'Standing on His Word',
+    'Unshaken Faith',
+    'Trusting God Again',
+    'Faith for the Journey',
+    'Held by His Promises',
+    'Brave Because He Is Near',
+    'Rooted in Trust',
+    'Faith When I Cannot See',
+    'Anchored in His Truth'
   ];
 
   if (theme.includes('spiritual growth')) return [
-    ['Rooted, Refined & Renewed','Growing in Grace','Becoming Who God Called Me to Be','Deeper with God'],
-    ['Rooted in His Word','A Journey of Spiritual Growth','Grace for the Becoming','Growing Stronger in Faith']
+    'Rooted, Refined & Renewed',
+    'Growing in Grace',
+    'Becoming Who God Called Me to Be',
+    'Deeper with God',
+    'Rooted in His Word',
+    'A Journey of Spiritual Growth',
+    'Grace for the Becoming',
+    'Growing Stronger in Faith',
+    'Becoming Rooted',
+    'Renewed Day by Day',
+    'Closer to God',
+    'Growing with Grace',
+    'Deeply Rooted',
+    'Formed by Faith',
+    'The Becoming Journey',
+    'Rooted for the Journey'
   ];
 
   return [
-    ['Gracefully Anchored','Rooted in Grace','Held by His Promises','A Journey with God'],
-    ['Faithfully Becoming','Grace for the Journey','Anchored in His Love','Walking with God']
+    'Gracefully Anchored',
+    'Rooted in Grace',
+    'Held by His Promises',
+    'A Journey with God',
+    'Faithfully Becoming',
+    'Grace for the Journey',
+    'Anchored in His Love',
+    'Walking with God',
+    'Purposefully Rooted',
+    'Held by Grace',
+    'Growing in His Presence',
+    'Beautifully Anchored'
   ];
+}
+
+function shuffleTitles(items) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+
+function prepareTitlePool() {
+  const theme = state.a.theme || '';
+
+  if (state.titleTheme !== theme || !state.titlePool.length) {
+    state.titleTheme = theme;
+    state.titlePool = shuffleTitles(getTitleBank());
+    state.titleGroup = 0;
+  }
+
+  const start = state.titleGroup * 4;
+  let titles = state.titlePool.slice(start, start + 4);
+
+  if (!titles.length) {
+    state.titlePool = shuffleTitles(getTitleBank());
+    state.titleGroup = 0;
+    titles = state.titlePool.slice(0, 4);
+  }
+
+  return titles;
 }
 
 /* =========================================================
@@ -744,6 +863,11 @@ function render() {
 
   if (q.type === 'paged-choice') {
     renderPagedChoice(q);
+    return;
+  }
+
+  if (q.type === 'multi-paged-choice') {
+    renderMultiPagedChoice(q);
     return;
   }
 
@@ -858,6 +982,113 @@ function renderPagedChoice(q) {
   };
 }
 
+
+function renderMultiPagedChoice(q) {
+  const pageKey = `${q.id}Page`;
+  const selectedKey = `${q.id}Selections`;
+
+  if (state.a[pageKey] === undefined) state.a[pageKey] = 0;
+  if (!Array.isArray(state.a[selectedKey])) {
+    state.a[selectedKey] = state.a[q.id]
+      ? String(state.a[q.id]).split(',').map(x => x.trim()).filter(Boolean)
+      : [];
+  }
+
+  const page = state.a[pageKey];
+  const options = q.groups[page] || q.groups[0];
+  const selected = state.a[selectedKey];
+
+  app.innerHTML = `
+    <h2>${q.q}</h2>
+
+    <p>Select as many as you like. Your selected accessories stay checked while you browse more choices.</p>
+
+    <div class="choices">
+      ${options.map((x,n)=>{
+        const isSelected = selected.includes(x);
+        return `
+          <button
+            class="choice multi-option"
+            data-v="${escapeAttr(x)}"
+            style="${isSelected ? 'border:2px solid #24385f;background:#eef3fb;' : ''}"
+          >
+            <b>${isSelected ? '✓' : String.fromCharCode(65+n)+'.'}</b>
+            ${escapeHtml(x)}
+          </button>
+        `;
+      }).join('')}
+
+      ${
+        q.groups.length > 1
+          ? `<button class="choice" id="moreChoices"><b>+</b> Show Me More Choices</button>`
+          : ''
+      }
+    </div>
+
+    <div class="nav">
+      <button id="back">Back</button>
+      <button id="doneMulti" class="primary">Done (${selected.length} selected)</button>
+    </div>
+  `;
+
+  document.querySelectorAll('.multi-option').forEach(btn => {
+    btn.onclick = () => {
+      const value = btn.dataset.v;
+      let current = state.a[selectedKey];
+
+      if (value === 'No accessories') {
+        current = ['No accessories'];
+      } else if (value === 'Surprise Me') {
+        current = ['Surprise Me'];
+      } else {
+        current = current.filter(x => x !== 'No accessories' && x !== 'Surprise Me');
+
+        if (current.includes(value)) {
+          current = current.filter(x => x !== value);
+        } else {
+          current.push(value);
+        }
+      }
+
+      state.a[selectedKey] = current;
+      render();
+    };
+  });
+
+  const more = document.getElementById('moreChoices');
+  if (more) {
+    more.onclick = () => {
+      state.a[pageKey] = (page + 1) % q.groups.length;
+      render();
+    };
+  }
+
+  document.getElementById('doneMulti').onclick = () => {
+    const finalSelected = state.a[selectedKey];
+
+    if (!finalSelected.length) {
+      alert('Please select at least one accessory, or choose No accessories.');
+      return;
+    }
+
+    state.a[q.id] = finalSelected.join(', ');
+    delete state.a[pageKey];
+    delete state.a[selectedKey];
+    state.i++;
+    render();
+  };
+
+  document.getElementById('back').onclick = () => {
+    delete state.a[pageKey];
+    delete state.a[selectedKey];
+
+    if (state.i > 0) {
+      state.i--;
+      render();
+    }
+  };
+}
+
 function renderSavedCharacterChoice(q) {
   const characters = getSavedCharacters();
 
@@ -947,13 +1178,13 @@ function renderTextQuestion(q) {
 ========================================================= */
 
 function renderTitleChoice(q) {
-  const groups = getTitleGroups();
-  const titles = groups[state.titleGroup];
+  const titles = prepareTitlePool();
+  const bank = getTitleBank();
 
   app.innerHTML = `
     <h2>${q.q}</h2>
 
-    <p>Choose one, let Gracefully Anchored surprise you, or enter your own title.</p>
+    <p>Choose one, let Gracefully Anchored surprise you, type your own title, or show a fresh set.</p>
 
     <div class="choices">
       ${titles.map((title,index)=>`
@@ -982,8 +1213,7 @@ function renderTitleChoice(q) {
   });
 
   document.getElementById('surpriseTitle').onclick = () => {
-    const all = groups.flat();
-    state.a.title = all[Math.floor(Math.random() * all.length)];
+    state.a.title = bank[Math.floor(Math.random() * bank.length)];
     state.i++;
     render();
   };
@@ -991,7 +1221,8 @@ function renderTitleChoice(q) {
   document.getElementById('customTitle').onclick = renderCustomTitle;
 
   document.getElementById('moreTitles').onclick = () => {
-    state.titleGroup = (state.titleGroup + 1) % groups.length;
+    state.titleGroup++;
+    prepareTitlePool();
     render();
   };
 
