@@ -1,10 +1,11 @@
-const app = document.getElementById('app');
+ const app = document.getElementById('app');
 const bar = document.getElementById('bar');
 const result = document.getElementById('result');
 const output = document.getElementById('output');
 
 const PROJECTS_KEY = 'gracefullyAnchoredProjectsV1';
 const CHARACTERS_KEY = 'gracefullyAnchoredCharactersV1';
+const CLOUD_SESSION_KEY = 'gracefullyAnchoredCloudSessionV1';
 
 const state = {
   step: 0,
@@ -380,7 +381,7 @@ function renderSingle(q) {
         </button>
       `).join('')}
     </div>
-    ${state.step === 0 && getSavedProjects().length ? `<div class="nav"><button id="savedProjects">Saved Projects (${getSavedProjects().length})</button></div>` : ''}
+    ${state.step === 0 ? `<div class="nav"><button id="savedProjects">Saved Projects</button></div>` : ''}
     <div class="nav"><button id="back" ${state.step===0?'disabled':''}>Back</button></div>
   `;
 
@@ -791,7 +792,7 @@ function renderSummary() {
 
     ${state.blueprint ? `
       <div class="nav">
-        <button id="savedProjects">Saved Projects (${getSavedProjects().length})</button>
+        <button id="savedProjects">Saved Projects</button>
         <button id="newProject">Start New Project</button>
       </div>` : ''}
 
@@ -871,7 +872,12 @@ async function generate(action) {
 
     if (action === 'blueprint') {
       state.blueprint = generatedText;
-      saveCurrentProject();
+
+      try {
+        await saveCurrentProject({ silent: true });
+      } catch (saveError) {
+        console.warn('Cloud auto-save failed:', saveError);
+      }
     }
 
     state.lastTextAction = action;
@@ -918,7 +924,7 @@ function renderNextStepButtons() {
       <button class="choice next-step" data-action="revise">E. Revise Blueprint</button>
       ${canGenerateImage ? `<button class="choice" id="generateImageBtn">${imageButtonLabel}</button>` : ''}
       <button class="choice" id="saveProjectNow">Save Project</button>
-      <button class="choice" id="openSavedProjects">Saved Projects (${getSavedProjects().length})</button>
+      <button class="choice" id="openSavedProjects">Saved Projects</button>
     </div>
   `;
   result.appendChild(panel);
@@ -932,9 +938,27 @@ function renderNextStepButtons() {
     generateImageBtn.onclick = () => generate('generate-image');
   }
 
-  document.getElementById('saveProjectNow').onclick = () => {
-    saveCurrentProject();
-    alert('Project saved in this browser.');
+  document.getElementById('saveProjectNow').onclick = async () => {
+    const button = document.getElementById('saveProjectNow');
+    const oldText = button.textContent;
+
+    try {
+      button.disabled = true;
+      button.textContent = 'Saving to cloud...';
+
+      await saveCurrentProject();
+
+      button.textContent = 'Saved to Cloud ✓';
+
+      setTimeout(() => {
+        button.textContent = oldText;
+      }, 1500);
+    } catch (error) {
+      alert('Cloud save failed: ' + error.message);
+      button.textContent = oldText;
+    } finally {
+      button.disabled = false;
+    }
   };
 
   document.getElementById('openSavedProjects').onclick = renderSavedProjects;
@@ -1310,40 +1334,205 @@ function renderImagePreview(dataUrl, promptText, title = 'Preview Image') {
    SAVED PROJECTS / CHARACTERS
 ---------------------------- */
 
-function getSavedProjects() {
-  try { return JSON.parse(localStorage.getItem(PROJECTS_KEY) || '[]'); }
-  catch { return []; }
+function getCloudSession() {
+  try {
+    return JSON.parse(localStorage.getItem(CLOUD_SESSION_KEY) || 'null');
+  } catch {
+    return null;
+  }
 }
 
-function getSavedCharacters() {
-  try { return JSON.parse(localStorage.getItem(CHARACTERS_KEY) || '[]'); }
-  catch { return []; }
+function storeCloudSession(session) {
+  localStorage.setItem(
+    CLOUD_SESSION_KEY,
+    JSON.stringify(session)
+  );
 }
 
-function saveCurrentProject() {
-  if (!state.blueprint) return;
+function cloudSessionIsFresh(session) {
+  if (!session?.access_token || !session?.expires_at) return false;
+
+  return session.expires_at >
+    Math.floor(Date.now() / 1000) + 90;
+}
+
+async function requestCloudSession(action, refreshToken = '') {
+  const response = await fetch(
+    '/.netlify/functions/cloud-auth',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        action,
+        refresh_token: refreshToken
+      })
+    }
+  );
+
+  const raw = await response.text();
+
+  let data;
+
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      'Cloud sign-in returned an unexpected response.'
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || 'Cloud sign-in failed.'
+    );
+  }
+
+  if (!data.access_token) {
+    throw new Error(
+      'Cloud sign-in did not return a session.'
+    );
+  }
+
+  storeCloudSession(data);
+
+  return data;
+}
+
+async function ensureCloudSession(forceRefresh = false) {
+  const session = getCloudSession();
+
+  if (
+    !forceRefresh &&
+    cloudSessionIsFresh(session)
+  ) {
+    return session;
+  }
+
+  if (session?.refresh_token) {
+    try {
+      return await requestCloudSession(
+        'refresh',
+        session.refresh_token
+      );
+    } catch (refreshError) {
+      console.warn(
+        'Cloud session refresh failed; creating a new anonymous session.',
+        refreshError
+      );
+    }
+  }
+
+  return await requestCloudSession('anonymous');
+}
+
+async function cloudProjectRequest(action, payload = {}, retry = true) {
+  const session = await ensureCloudSession();
+
+  const response = await fetch(
+    '/.netlify/functions/cloud-projects',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        action,
+        ...payload
+      })
+    }
+  );
+
+  const raw = await response.text();
+
+  let data;
+
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      'Cloud projects returned an unexpected response.'
+    );
+  }
+
+  if (
+    response.status === 401 &&
+    retry
+  ) {
+    await ensureCloudSession(true);
+
+    return cloudProjectRequest(
+      action,
+      payload,
+      false
+    );
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || 'Cloud project request failed.'
+    );
+  }
+
+  return data;
+}
+
+async function getSavedProjects() {
+  const data = await cloudProjectRequest('list');
+
+  return Array.isArray(data.projects)
+    ? data.projects
+    : [];
+}
+
+async function saveCurrentProject(options = {}) {
+  const { silent = false } = options;
+
+  if (!state.blueprint) {
+    if (!silent) {
+      throw new Error(
+        'Create a Blueprint before saving the project.'
+      );
+    }
+
+    return null;
+  }
 
   saveCharacterIfNeeded();
 
-  const projects = getSavedProjects();
-  const id = state.currentProjectId || `ga-${Date.now()}`;
-
-  const item = {
-    id,
+  const payload = {
+    id: state.currentProjectId || null,
     title: state.answers.title || 'Untitled Project',
     type: state.answers.type || '',
     theme: state.answers.theme || '',
     answers: { ...state.answers },
-    blueprint: state.blueprint,
-    updatedAt: new Date().toISOString()
+    blueprint: state.blueprint
   };
 
-  const i = projects.findIndex(p => p.id === id);
-  if (i >= 0) projects[i] = item;
-  else projects.unshift(item);
+  const data = await cloudProjectRequest(
+    'save',
+    { project: payload }
+  );
 
-  localStorage.setItem(PROJECTS_KEY, JSON.stringify(projects));
-  state.currentProjectId = id;
+  if (!data.project?.id) {
+    throw new Error(
+      'The cloud save completed without returning a project ID.'
+    );
+  }
+
+  state.currentProjectId =
+    data.project.id;
+
+  return data.project;
+}
+
+async function deleteCloudProject(id) {
+  await cloudProjectRequest(
+    'delete',
+    { id }
+  );
 }
 
 function saveCharacterIfNeeded() {
@@ -1370,56 +1559,248 @@ function saveCharacterIfNeeded() {
   state.answers.savedCharacterId = id;
 }
 
-function renderSavedProjects() {
-  const projects = getSavedProjects();
+async function renderSavedProjects() {
   result.classList.add('hidden');
+  bar.style.width = '100%';
 
   app.innerHTML = `
     <h2>Saved Projects</h2>
-    <div class="nav"><button id="newProject" class="primary">+ Create New Project</button></div>
-    <div class="choices">
-      ${projects.length ? projects.map(p=>`
-        <div class="choice" style="cursor:default">
-          <b>${html(p.title)}</b>
-          <div>${html(p.type)}${p.theme ? ' · ' + html(p.theme) : ''}</div>
-          <div class="nav">
-            <button class="openSaved" data-id="${attr(p.id)}">Open</button>
-            <button class="deleteSaved" data-id="${attr(p.id)}">Delete</button>
-          </div>
-        </div>`).join('') : '<div class="choice">No saved projects yet.</div>'}
+
+    <p>
+      Loading your cloud projects...
+    </p>
+
+    <div class="nav">
+      <button id="newProject" class="primary">
+        + Create New Project
+      </button>
     </div>
-    <div class="nav"><button id="backHome">Back</button></div>
   `;
 
-  document.getElementById('newProject').onclick = startNewProject;
-  document.getElementById('backHome').onclick = startNewProject;
+  document.getElementById('newProject').onclick =
+    startNewProject;
 
-  document.querySelectorAll('.openSaved').forEach(btn => {
-    btn.onclick = () => {
-      const p = projects.find(x => x.id === btn.dataset.id);
-      if (!p) return;
-      state.answers = {...p.answers};
-      state.blueprint = p.blueprint || '';
-      state.currentProjectId = p.id;
-      state.step = buildQuestions().length;
-      state.lastTextAction = 'blueprint';
-      state.lastGeneratedText = state.blueprint || '';
-      clearImagePreview();
-      renderStyledOutput(state.blueprint, 'blueprint');
-      renderSummary();
-      result.classList.remove('hidden');
-      renderNextStepButtons();
-    };
-  });
+  try {
+    const projects =
+      await getSavedProjects();
 
-  document.querySelectorAll('.deleteSaved').forEach(btn => {
-    btn.onclick = () => {
-      if (!confirm('Delete this saved project?')) return;
-      const updated = projects.filter(p => p.id !== btn.dataset.id);
-      localStorage.setItem(PROJECTS_KEY, JSON.stringify(updated));
-      renderSavedProjects();
-    };
-  });
+    app.innerHTML = `
+      <h2>Saved Projects</h2>
+
+      <p>
+        These projects are saved in your Gracefully Anchored cloud workspace.
+      </p>
+
+      <div class="nav">
+        <button id="newProject" class="primary">
+          + Create New Project
+        </button>
+      </div>
+
+      <div class="choices">
+        ${
+          projects.length
+            ? projects.map(project => `
+                <div class="choice" style="cursor:default">
+                  <div>
+                    <b>${html(project.title || 'Untitled Project')}</b>
+                  </div>
+
+                  <div style="font-size:.9rem;opacity:.8;margin-top:4px;">
+                    ${html(project.type || '')}
+                    ${
+                      project.theme
+                        ? ' · ' + html(project.theme)
+                        : ''
+                    }
+                  </div>
+
+                  <div style="font-size:.78rem;opacity:.65;margin-top:5px;">
+                    ${
+                      project.updated_at
+                        ? 'Updated ' +
+                          html(
+                            new Date(
+                              project.updated_at
+                            ).toLocaleString()
+                          )
+                        : ''
+                    }
+                  </div>
+
+                  <div class="nav">
+                    <button
+                      class="openSaved"
+                      data-id="${attr(project.id)}"
+                    >
+                      Open
+                    </button>
+
+                    <button
+                      class="deleteSaved"
+                      data-id="${attr(project.id)}"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              `).join('')
+            : `
+              <div
+                class="choice"
+                style="cursor:default"
+              >
+                No cloud projects yet.
+              </div>
+            `
+        }
+      </div>
+
+      <div class="nav">
+        <button id="backHome">
+          Back
+        </button>
+      </div>
+    `;
+
+    document.getElementById('newProject').onclick =
+      startNewProject;
+
+    document.getElementById('backHome').onclick =
+      startNewProject;
+
+    document
+      .querySelectorAll('.openSaved')
+      .forEach(button => {
+        button.onclick = () => {
+          const project =
+            projects.find(
+              item =>
+                item.id ===
+                button.dataset.id
+            );
+
+          if (!project) return;
+
+          state.answers = {
+            ...(project.answers || {})
+          };
+
+          state.blueprint =
+            project.blueprint || '';
+
+          state.currentProjectId =
+            project.id;
+
+          state.step =
+            buildQuestions().length;
+
+          state.lastTextAction =
+            'blueprint';
+
+          state.lastGeneratedText =
+            state.blueprint || '';
+
+          clearImagePreview();
+
+          renderStyledOutput(
+            state.blueprint,
+            'blueprint'
+          );
+
+          renderSummary();
+
+          result.classList.remove(
+            'hidden'
+          );
+
+          renderNextStepButtons();
+        };
+      });
+
+    document
+      .querySelectorAll('.deleteSaved')
+      .forEach(button => {
+        button.onclick = async () => {
+          const project =
+            projects.find(
+              item =>
+                item.id ===
+                button.dataset.id
+            );
+
+          const projectTitle =
+            project?.title ||
+            'this project';
+
+          if (
+            !confirm(
+              `Delete "${projectTitle}" from the cloud?`
+            )
+          ) {
+            return;
+          }
+
+          button.disabled = true;
+          button.textContent =
+            'Deleting...';
+
+          try {
+            await deleteCloudProject(
+              button.dataset.id
+            );
+
+            if (
+              state.currentProjectId ===
+              button.dataset.id
+            ) {
+              state.currentProjectId =
+                null;
+            }
+
+            await renderSavedProjects();
+          } catch (error) {
+            alert(
+              'Delete failed: ' +
+                error.message
+            );
+
+            button.disabled = false;
+            button.textContent =
+              'Delete';
+          }
+        };
+      });
+
+  } catch (error) {
+    app.innerHTML = `
+      <h2>Saved Projects</h2>
+
+      <p>
+        We couldn't load your cloud projects.
+      </p>
+
+      <p style="color:#8b2d2d;">
+        ${html(error.message)}
+      </p>
+
+      <div class="nav">
+        <button id="retryCloud" class="primary">
+          Try Again
+        </button>
+
+        <button id="newProject">
+          Start New Project
+        </button>
+      </div>
+    `;
+
+    document.getElementById('retryCloud').onclick =
+      renderSavedProjects;
+
+    document.getElementById('newProject').onclick =
+      startNewProject;
+  }
 }
 
 function startNewProject() {
