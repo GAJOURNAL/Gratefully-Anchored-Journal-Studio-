@@ -226,12 +226,12 @@ function buildQuestions() {
       if (a.faithElementChoice === 'Yes — show me faith-element options') q.push({ id:'faithElement', q:'Choose a faith element.', kind:'paged-single', groups:faithGroups });
       if (a.faithElementChoice === "I'll describe the faith element myself") q.push({ id:'faithElementCustom', q:'Describe the faith element.', kind:'text' });
 
-      q.push({ id:'framingChoice', q:'Would you like to choose how the woman is framed?', kind:'single', options:['Yes — show me framing options','No — let the studio choose what fits the page best','Keep the framing simple and natural',"I'll describe the framing myself"] });
+      q.push({ id:'framingChoice', q:'Would you like to choose how the woman is framed?', kind:'single', options:['Yes — show me framing options','Choose for Me','Surprise Me','Keep the framing simple and natural',"I'll describe the framing myself"] });
 
       if (a.framingChoice === 'Yes — show me framing options') q.push({ id:'framing', q:'Choose the character framing.', kind:'paged-single', groups:framingGroups });
       if (a.framingChoice === "I'll describe the framing myself") q.push({ id:'framingCustom', q:'Describe the framing.', kind:'text' });
 
-      q.push({ id:'lightingChoice', q:'Would you like to choose the lighting or atmosphere?', kind:'single', options:['Yes — show me lighting options','No — let the studio choose what fits the page best','Keep the lighting soft and natural',"I'll describe the lighting myself"] });
+      q.push({ id:'lightingChoice', q:'Would you like to choose the lighting or atmosphere?', kind:'single', options:['Yes — show me lighting options','Choose for Me','Surprise Me','Keep the lighting soft and natural',"I'll describe the lighting myself"] });
 
       if (a.lightingChoice === 'Yes — show me lighting options') q.push({ id:'lighting', q:'Choose the lighting or atmosphere.', kind:'paged-single', groups:lightingGroups });
       if (a.lightingChoice === "I'll describe the lighting myself") q.push({ id:'lightingCustom', q:'Describe the lighting or atmosphere.', kind:'text' });
