@@ -1,4 +1,4 @@
-  const app = document.getElementById('app');
+const app = document.getElementById('app');
 const bar = document.getElementById('bar');
 const result = document.getElementById('result');
 const output = document.getElementById('output');
@@ -70,6 +70,50 @@ const accessoryGroups = [
   ['Scarf','Hair accessory','Handbag or tote','No accessories','Let me describe my own','Surprise Me']
 ];
 
+const outfitColorOptions = [
+  'Ivory',
+  'Cream',
+  'White',
+  'Black',
+  'Navy',
+  'Royal Blue',
+  'Powder Blue',
+  'Lavender',
+  'Royal Purple',
+  'Blush Pink',
+  'Dusty Rose',
+  'Burgundy',
+  'Sage Green',
+  'Emerald Green',
+  'Taupe',
+  'Camel',
+  'Champagne',
+  'Soft Gold',
+  'Silver',
+  'Rose Gold'
+];
+
+const accessoryOptions = [
+  'Small gold hoops',
+  'Small silver hoops',
+  'Stud earrings',
+  'Pearl earrings',
+  'Delicate necklace',
+  'Cross necklace',
+  'Layered necklaces',
+  'Gold bracelet',
+  'Silver bracelet',
+  'Watch',
+  'Glasses',
+  'Headband',
+  'Scarf',
+  'Hair accessory',
+  'Handbag or tote',
+  'No accessories',
+  'Let me describe my own',
+  'Surprise Me'
+];
+
 const settingsGroups = [
   ['Cozy prayer room','Peaceful bedroom','Elegant home office','Sunlit reading nook','Garden','Church interior'],
   ['Quiet café','Living room','Balcony or patio','Beach or lakeside','Nature trail','Soft studio background'],
@@ -133,9 +177,18 @@ function buildQuestions() {
         { id:'clothingStyle', q:'What clothing style would you like?', kind:'paged-single', groups:clothingGroups },
         { id:'mood', q:'What mood or expression would you like?', kind:'paged-single', groups:moodGroups },
         { id:'illustrationStyle', q:'What illustration style would you like?', kind:'paged-single', groups:illustrationGroups },
-        { id:'outfitColors', q:'How would you like to choose her outfit colors?', kind:'single', options:['Soft neutrals and feminine pastels','Give me a wider color selection','Let me type the exact colors I want','Surprise Me'] },
-        { id:'accessories', q:'What accessories would you like?', kind:'multi', groups:accessoryGroups }
+        { id:'outfitColors', q:'How would you like to choose her outfit colors?', kind:'single', options:['Soft neutrals and feminine pastels','Give me a wider color selection','Let me type the exact colors I want','Surprise Me'] }
       );
+
+      if (a.outfitColors === 'Give me a wider color selection') {
+        q.push({ id:'outfitColorSelections', q:'Choose one or more outfit colors by letter, then click Done.', kind:'letter-multi', options:outfitColorOptions });
+      }
+
+      if (a.outfitColors === 'Let me type the exact colors I want') {
+        q.push({ id:'outfitColorCustom', q:'Type the exact outfit colors you want.', kind:'text' });
+      }
+
+      q.push({ id:'accessories', q:'Choose one or more accessories by letter, then click Done.', kind:'letter-multi', options:accessoryOptions });
     }
 
     if (a.characterMode === 'Full Customization') {
@@ -145,11 +198,20 @@ function buildQuestions() {
         { id:'hair', q:'What hair look would you like?', kind:'paged-single', groups:hairGroups },
         { id:'clothingStyle', q:'What clothing style would you like?', kind:'paged-single', groups:clothingGroups },
         { id:'outfitColors', q:'How would you like to choose her outfit colors?', kind:'single', options:['Soft neutrals and feminine pastels','Give me a wider color selection','Let me type the exact colors I want','Surprise Me'] },
-        { id:'accessories', q:'What accessories would you like?', kind:'multi', groups:accessoryGroups },
         { id:'mood', q:'What mood or expression would you like?', kind:'paged-single', groups:moodGroups },
         { id:'illustrationStyle', q:'What illustration style would you like?', kind:'paged-single', groups:illustrationGroups },
         { id:'backgroundChoice', q:'Would you like to choose the background or setting?', kind:'single', options:['Yes — show me setting options','No — let the studio choose','No background / simple clean background',"I'll describe the setting myself"] }
       );
+
+      if (a.outfitColors === 'Give me a wider color selection') {
+        q.splice(q.length - 3, 0, { id:'outfitColorSelections', q:'Choose one or more outfit colors by letter, then click Done.', kind:'letter-multi', options:outfitColorOptions });
+      }
+
+      if (a.outfitColors === 'Let me type the exact colors I want') {
+        q.splice(q.length - 3, 0, { id:'outfitColorCustom', q:'Type the exact outfit colors you want.', kind:'text' });
+      }
+
+      q.splice(q.length - 3, 0, { id:'accessories', q:'Choose one or more accessories by letter, then click Done.', kind:'letter-multi', options:accessoryOptions });
 
       if (a.backgroundChoice === 'Yes — show me setting options') q.push({ id:'background', q:'Choose the background or setting.', kind:'paged-single', groups:settingsGroups });
       if (a.backgroundChoice === "I'll describe the setting myself") q.push({ id:'backgroundCustom', q:'Describe the background or setting.', kind:'text' });
@@ -297,6 +359,7 @@ function render() {
 
   if (q.kind === 'single') return renderSingle(q);
   if (q.kind === 'paged-single') return renderPagedSingle(q);
+  if (q.kind === 'letter-multi') return renderLetterMulti(q);
   if (q.kind === 'multi') return renderMulti(q);
   if (q.kind === 'title') return renderTitle(q);
   if (q.kind === 'text') return renderText(q);
@@ -366,6 +429,117 @@ function renderPagedSingle(q) {
   }
 
   bindBack(q.id);
+}
+
+
+function renderLetterMulti(q) {
+  const currentValue = state.answers[q.id] || '';
+
+  app.innerHTML = `
+    <h2>${q.q}</h2>
+
+    <p>
+      Type the letters for every choice you want.
+      Example: <b>A, F, K</b>
+    </p>
+
+    <div class="choices" style="cursor:default;">
+      ${q.options.map((x,i)=>`
+        <div class="choice" style="cursor:default;">
+          <b>${letterForIndex(i)}.</b> ${html(x)}
+        </div>
+      `).join('')}
+    </div>
+
+    <label for="letterEntry" style="display:block;margin-top:18px;font-weight:700;">
+      Enter your letters:
+    </label>
+
+    <input
+      id="letterEntry"
+      type="text"
+      placeholder="Example: A, F, K"
+      value=""
+      autocomplete="off"
+    >
+
+    ${currentValue ? `<p><b>Current selection:</b> ${html(currentValue)}</p>` : ''}
+
+    <div class="nav">
+      <button type="button" id="back">Back</button>
+      <button type="button" id="doneLetters" class="primary">Done</button>
+    </div>
+  `;
+
+  document.getElementById('doneLetters').onclick = () => {
+    const raw = document.getElementById('letterEntry').value.trim();
+
+    if (!raw) {
+      alert('Please enter at least one letter, such as A, F, K.');
+      return;
+    }
+
+    const letters = raw
+      .toUpperCase()
+      .split(/[^A-Z]+/)
+      .map(x => x.trim())
+      .filter(Boolean);
+
+    const uniqueLetters = [...new Set(letters)];
+    const selected = [];
+
+    for (const letter of uniqueLetters) {
+      const index = indexForLetter(letter);
+
+      if (index < 0 || index >= q.options.length) {
+        alert(`"${letter}" is not one of the available choices. Please use only the letters shown on this screen.`);
+        return;
+      }
+
+      selected.push(q.options[index]);
+    }
+
+    if (selected.includes('No accessories') && selected.length > 1) {
+      alert('Choose either No accessories by itself, or choose the accessories you want.');
+      return;
+    }
+
+    if (selected.includes('Surprise Me') && selected.length > 1) {
+      alert('Choose Surprise Me by itself, or choose the specific options you want.');
+      return;
+    }
+
+    state.answers[q.id] = selected.join(', ');
+    state.step += 1;
+    render();
+  };
+
+  bindBack();
+}
+
+function letterForIndex(index) {
+  // Supports A-Z, then AA, AB, AC...
+  let n = index + 1;
+  let result = '';
+
+  while (n > 0) {
+    n -= 1;
+    result = String.fromCharCode(65 + (n % 26)) + result;
+    n = Math.floor(n / 26);
+  }
+
+  return result;
+}
+
+function indexForLetter(letter) {
+  let n = 0;
+
+  for (const ch of letter) {
+    if (ch < 'A' || ch > 'Z') return -1;
+    n = n * 26 + (ch.charCodeAt(0) - 64);
+  }
+
+  return n - 1;
 }
 
 function renderMulti(q) {
