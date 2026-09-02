@@ -51,11 +51,11 @@ Keep this first response reasonably concise so it returns quickly.
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "gpt-5.6-terra",
-        reasoning: {
-          effort: "low"
-        },
-        max_output_tokens: 2500,
+       model: "gpt-5.6-luna",
+reasoning: {
+  effort: "none"
+},
+max_output_tokens: 1200,
         instructions,
         input: `Create the Gracefully Anchored blueprint from these selections:\n\n${project}`
       })
