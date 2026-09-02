@@ -3,7 +3,9 @@ exports.handler = async (event) => {
     return {
       statusCode: 405,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ error: "Method not allowed" })
+      body: JSON.stringify({
+        error: "Method not allowed"
+      })
     };
   }
 
@@ -20,26 +22,28 @@ exports.handler = async (event) => {
       };
     }
 
-    const project = Object.entries(answers || {})
-      .map(([key, value]) => `- ${key}: ${value}`)
-      .join("\n");
-
     const instructions = `
-const instructions = `
 You are Gracefully Anchored Journal Studio.
 
-Create a CONCISE master blueprint for the user's approved Christian journal, devotional, workbook, or coordinated cover project.
+Create a concise master blueprint for the user's approved Christian journal, devotional, workbook, or coordinated cover project.
 
 Do not create the entire finished product in this first response.
 
 Use the user's approved selections exactly.
-If "Surprise Me" was selected, choose the strongest fit based on the other answers.
 
-Keep the response organized, practical, faith-centered, elegant, and print-friendly.
+If "Surprise Me" was selected, choose the strongest fitting option based on the other answers.
 
-Do not invent Bible verses or references.
+Keep the response:
+- organized
+- practical
+- faith-centered
+- elegant
+- cohesive
+- print-friendly
 
-For a complete journal, devotional, or workbook, return ONLY these sections:
+Do not invent Bible verses or Bible references.
+
+For a complete journal, devotional, or workbook, return only:
 
 # PROJECT OVERVIEW
 Include:
@@ -68,21 +72,20 @@ List only the recommended or selected opening pages.
 Create a concise section-by-section outline.
 
 # PAGE-BY-PAGE OUTLINE
-List page titles and purposes only.
-Do NOT write the full prompts yet.
+List page titles and their purpose only.
+Do not write full detailed prompts yet.
 
 # SUGGESTED PAGE COUNT
 Give an estimated total interior page count.
 
 # NEXT STEPS
-End with:
 A. Create detailed page prompts
 B. Create front + back cover prompts
 C. Create print map
 D. Create marketing extras
 E. Revise this blueprint
 
-For a front + back cover project, return ONLY:
+For a front + back cover project, return only:
 
 # COVER OVERVIEW
 # FRONT COVER DIRECTION
@@ -93,25 +96,40 @@ For a front + back cover project, return ONLY:
 # NEXT STEPS
 
 Keep the first blueprint concise.
-Aim for approximately 600-900 words maximum.
+Aim for approximately 500 to 800 words.
 `;
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-       model: "gpt-5.6-luna",
-reasoning: {
-  effort: "none"
-},
-max_output_tokens: 1200,
-        instructions,
-        input: `Create the Gracefully Anchored blueprint from these selections:\n\n${project}`
-      })
-    });
+    const project = Object.entries(answers || {})
+      .map(([key, value]) => `- ${key}: ${value}`)
+      .join("\n");
+
+    const response = await fetch(
+      "https://api.openai.com/v1/responses",
+      {
+        method: "POST",
+
+        headers: {
+          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        },
+
+        body: JSON.stringify({
+          model: "gpt-5.6-luna",
+
+          reasoning: {
+            effort: "none"
+          },
+
+          max_output_tokens: 1200,
+
+          instructions: instructions,
+
+          input: `Create the Gracefully Anchored blueprint from these approved selections:
+
+${project}`
+        })
+      }
+    );
 
     const raw = await response.text();
 
@@ -119,7 +137,7 @@ max_output_tokens: 1200,
 
     try {
       data = JSON.parse(raw);
-    } catch {
+    } catch (error) {
       return {
         statusCode: 500,
         headers: { "Content-Type": "application/json" },
@@ -134,23 +152,32 @@ max_output_tokens: 1200,
         statusCode: response.status,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          error: data?.error?.message || "OpenAI request failed."
+          error:
+            data &&
+            data.error &&
+            data.error.message
+              ? data.error.message
+              : "OpenAI request failed."
         })
       };
     }
 
-    const output =
-      data.output_text ||
-      (data.output || [])
-        .flatMap(item => item.content || [])
-        .map(item => item.text || "")
+    let output = data.output_text || "";
+
+    if (!output && Array.isArray(data.output)) {
+      output = data.output
+        .flatMap((item) => item.content || [])
+        .map((item) => item.text || "")
         .join("\n");
+    }
 
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        output: output || "No blueprint text was returned."
+        output:
+          output ||
+          "No blueprint text was returned."
       })
     };
 
@@ -159,7 +186,10 @@ max_output_tokens: 1200,
       statusCode: 500,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        error: error.message || "Generation failed."
+        error:
+          error && error.message
+            ? error.message
+            : "Generation failed."
       })
     };
   }
