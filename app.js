@@ -988,6 +988,7 @@ function renderMultiPagedChoice(q) {
   const selectedKey = `${q.id}Selections`;
 
   if (state.a[pageKey] === undefined) state.a[pageKey] = 0;
+
   if (!Array.isArray(state.a[selectedKey])) {
     state.a[selectedKey] = state.a[q.id]
       ? String(state.a[q.id]).split(',').map(x => x.trim()).filter(Boolean)
@@ -1001,18 +1002,26 @@ function renderMultiPagedChoice(q) {
   app.innerHTML = `
     <h2>${q.q}</h2>
 
-    <p>Select as many as you like. Your selected accessories stay checked while you browse more choices.</p>
+    <p>
+      Select as many accessories as you like.
+      Your choices stay selected until you press Done.
+    </p>
 
     <div class="choices">
       ${options.map((x,n)=>{
         const isSelected = selected.includes(x);
+
         return `
           <button
+            type="button"
             class="choice multi-option"
             data-v="${escapeAttr(x)}"
+            aria-pressed="${isSelected ? 'true' : 'false'}"
             style="${isSelected ? 'border:2px solid #24385f;background:#eef3fb;' : ''}"
           >
-            <b>${isSelected ? '✓' : String.fromCharCode(65+n)+'.'}</b>
+            <b class="multi-mark">
+              ${isSelected ? '✓' : String.fromCharCode(65+n)+'.'}
+            </b>
             ${escapeHtml(x)}
           </button>
         `;
@@ -1020,65 +1029,136 @@ function renderMultiPagedChoice(q) {
 
       ${
         q.groups.length > 1
-          ? `<button class="choice" id="moreChoices"><b>+</b> Show Me More Choices</button>`
+          ? `
+            <button type="button" class="choice" id="moreChoices">
+              <b>+</b> Show Me More Choices
+            </button>
+          `
           : ''
       }
     </div>
 
     <div class="nav">
-      <button id="back">Back</button>
-      <button id="doneMulti" class="primary">Done (${selected.length} selected)</button>
+      <button type="button" id="back">Back</button>
+
+      <button type="button" id="doneMulti" class="primary">
+        Done (${selected.length} selected)
+      </button>
     </div>
   `;
 
+  const doneButton = document.getElementById('doneMulti');
+
   document.querySelectorAll('.multi-option').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
       const value = btn.dataset.v;
-      let current = state.a[selectedKey];
+      let current = [...state.a[selectedKey]];
 
       if (value === 'No accessories') {
         current = ['No accessories'];
-      } else if (value === 'Surprise Me') {
+      }
+
+      else if (value === 'Surprise Me') {
         current = ['Surprise Me'];
-      } else {
-        current = current.filter(x => x !== 'No accessories' && x !== 'Surprise Me');
+      }
+
+      else {
+        current = current.filter(
+          x => x !== 'No accessories' && x !== 'Surprise Me'
+        );
 
         if (current.includes(value)) {
           current = current.filter(x => x !== value);
-        } else {
+        }
+
+        else {
           current.push(value);
         }
       }
 
       state.a[selectedKey] = current;
-      render();
+
+      // Update every visible accessory button without leaving this screen.
+      document.querySelectorAll('.multi-option').forEach(optionBtn => {
+        const optionValue = optionBtn.dataset.v;
+        const isSelected = current.includes(optionValue);
+        const mark = optionBtn.querySelector('.multi-mark');
+
+        optionBtn.setAttribute(
+          'aria-pressed',
+          isSelected ? 'true' : 'false'
+        );
+
+        if (isSelected) {
+          optionBtn.style.border = '2px solid #24385f';
+          optionBtn.style.background = '#eef3fb';
+          if (mark) mark.textContent = '✓';
+        }
+
+        else {
+          optionBtn.style.border = '';
+          optionBtn.style.background = '';
+
+          if (mark) {
+            const visibleButtons =
+              Array.from(document.querySelectorAll('.multi-option'));
+
+            const index = visibleButtons.indexOf(optionBtn);
+
+            mark.textContent =
+              String.fromCharCode(65 + index) + '.';
+          }
+        }
+      });
+
+      doneButton.textContent =
+        `Done (${current.length} selected)`;
     };
   });
 
   const more = document.getElementById('moreChoices');
+
   if (more) {
-    more.onclick = () => {
-      state.a[pageKey] = (page + 1) % q.groups.length;
+    more.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      state.a[pageKey] =
+        (page + 1) % q.groups.length;
+
       render();
     };
   }
 
-  document.getElementById('doneMulti').onclick = () => {
+  doneButton.onclick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
     const finalSelected = state.a[selectedKey];
 
     if (!finalSelected.length) {
-      alert('Please select at least one accessory, or choose No accessories.');
+      alert(
+        'Please select at least one accessory, or choose No accessories.'
+      );
       return;
     }
 
     state.a[q.id] = finalSelected.join(', ');
+
     delete state.a[pageKey];
     delete state.a[selectedKey];
+
     state.i++;
     render();
   };
 
-  document.getElementById('back').onclick = () => {
+  document.getElementById('back').onclick = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+
     delete state.a[pageKey];
     delete state.a[selectedKey];
 
