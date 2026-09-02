@@ -24,9 +24,13 @@ For complete journal/devotional/workbook projects, include project overview, des
       method: "POST",
       headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "gpt-5.6",
-        instructions,
-        input: `Create the Gracefully Anchored project from these selections:\n${project}`
+  model: "gpt-5.6-terra",
+  reasoning: {
+    effort: "low"
+  },
+  instructions,
+  input: `Create the Gracefully Anchored project from these selections:\n${project}`
+})
       })
     });
 
