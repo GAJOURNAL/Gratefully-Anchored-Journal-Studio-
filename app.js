@@ -6,7 +6,8 @@ const output = document.getElementById('output');
 const state = {
   i: 0,
   a: {},
-  titleGroup: 0
+  titleGroup: 0,
+  blueprint: ''
 };
 
 const qs = [
@@ -233,13 +234,11 @@ function render() {
 
   const q = qs[state.i];
 
-  /* TITLE STEP */
   if (q.type === 'title-choice') {
     renderTitleChoice(q);
     return;
   }
 
-  /* NORMAL CHOICE QUESTIONS */
   if (q.o) {
     app.innerHTML = `
       <h2>${q.q}</h2>
@@ -268,7 +267,6 @@ function render() {
     });
   }
 
-  /* TEXT / TEXTAREA QUESTIONS */
   else {
     const control =
       q.t === 'textarea'
@@ -317,7 +315,6 @@ function render() {
 
 function renderTitleChoice(q) {
   const groups = getTitleGroups();
-
   const titles = groups[state.titleGroup];
 
   app.innerHTML = `
@@ -373,7 +370,6 @@ function renderTitleChoice(q) {
       allTitles[Math.floor(Math.random() * allTitles.length)];
 
     state.a.title = selected;
-
     state.i++;
     render();
   };
@@ -443,9 +439,7 @@ function renderCustomTitle() {
     }
 
     state.a.title = title;
-
     state.i++;
-
     render();
   };
 }
@@ -491,19 +485,22 @@ function summary() {
     render();
   };
 
-  document.getElementById('gen').onclick = generate;
+  document.getElementById('gen').onclick = () => {
+    generate('blueprint');
+  };
 }
 
 
 /* =========================
-   GENERATE BLUEPRINT
+   GENERATE
 ========================= */
 
-async function generate() {
-  document
-    .getElementById('loading')
-    .classList
-    .remove('hidden');
+async function generate(action) {
+  const loading = document.getElementById('loading');
+
+  if (loading) {
+    loading.classList.remove('hidden');
+  }
 
   try {
     const r = await fetch(
@@ -516,7 +513,9 @@ async function generate() {
         },
 
         body: JSON.stringify({
-          answers: state.a
+          answers: state.a,
+          action: action,
+          blueprint: state.blueprint
         })
       }
     );
@@ -544,7 +543,13 @@ async function generate() {
     output.textContent =
       d.output || 'No output returned';
 
+    if (action === 'blueprint') {
+      state.blueprint = d.output || '';
+    }
+
     result.classList.remove('hidden');
+
+    renderNextStepButtons();
   }
 
   catch (e) {
@@ -554,10 +559,78 @@ async function generate() {
     result.classList.remove('hidden');
   }
 
-  document
-    .getElementById('loading')
-    .classList
-    .add('hidden');
+  if (loading) {
+    loading.classList.add('hidden');
+  }
+}
+
+
+/* =========================
+   NEXT STEP BUTTONS
+========================= */
+
+function renderNextStepButtons() {
+  let existing = document.getElementById('nextStepPanel');
+
+  if (existing) {
+    existing.remove();
+  }
+
+  const panel = document.createElement('div');
+  panel.id = 'nextStepPanel';
+
+  panel.innerHTML = `
+    <h3>What would you like to create next?</h3>
+
+    <div class="choices">
+
+      <button class="choice next-step" data-action="page-prompts">
+        A. Create Detailed Page Prompts
+      </button>
+
+      <button class="choice next-step" data-action="cover-prompts">
+        B. Create Front + Back Cover Prompts
+      </button>
+
+      <button class="choice next-step" data-action="print-map">
+        C. Create Print Map
+      </button>
+
+      <button class="choice next-step" data-action="marketing">
+        D. Create Marketing Extras
+      </button>
+
+      <button class="choice next-step" data-action="revise">
+        E. Revise Blueprint
+      </button>
+
+    </div>
+
+    <p id="nextLoading" class="hidden">
+      Creating your next section...
+    </p>
+  `;
+
+  result.appendChild(panel);
+
+  document.querySelectorAll('.next-step').forEach(button => {
+    button.onclick = async () => {
+      const action = button.dataset.action;
+
+      const nextLoading =
+        document.getElementById('nextLoading');
+
+      if (nextLoading) {
+        nextLoading.classList.remove('hidden');
+      }
+
+      await generate(action);
+
+      if (nextLoading) {
+        nextLoading.classList.add('hidden');
+      }
+    };
+  });
 }
 
 
