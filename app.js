@@ -14,7 +14,11 @@ const state = {
   currentCharacterId: null,
   titlePool: [],
   titleOffset: 0,
-  titleTheme: ''
+  titleTheme: '',
+  lastTextAction: '',
+  lastGeneratedText: '',
+  lastImagePrompt: '',
+  lastImageDataUrl: ''
 };
 
 const ui = {
@@ -810,17 +814,26 @@ function renderSummary() {
 
 async function generate(action) {
   const loading = document.getElementById('loading');
-  if (loading) loading.classList.remove('hidden');
+  if (loading) {
+    loading.classList.remove('hidden');
+    loading.textContent = action === 'generate-image'
+      ? 'Generating your image preview...'
+      : 'Creating your result...';
+  }
 
   try {
+    const payload = {
+      answers: state.answers,
+      action,
+      blueprint: state.blueprint,
+      sourceText: state.lastGeneratedText || state.blueprint || output.dataset.rawText || '',
+      sourceAction: state.lastTextAction || 'blueprint'
+    };
+
     const r = await fetch('/.netlify/functions/generate', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        answers: state.answers,
-        action,
-        blueprint: state.blueprint
-      })
+      body:JSON.stringify(payload)
     });
 
     const raw = await r.text();
@@ -831,6 +844,24 @@ async function generate(action) {
 
     if (!r.ok) throw new Error(data.error || 'Generation failed');
 
+    if (action === 'generate-image') {
+      const mimeType = data.mime_type || 'image/png';
+      const imageBase64 = data.image_base64;
+      const imagePrompt = data.image_prompt || '';
+
+      if (!imageBase64) {
+        throw new Error('No image was returned.');
+      }
+
+      state.lastImagePrompt = imagePrompt;
+      state.lastImageDataUrl = `data:${mimeType};base64,${imageBase64}`;
+
+      renderImagePreview(state.lastImageDataUrl, imagePrompt, data.source_label || 'Preview Image');
+      result.classList.remove('hidden');
+      renderNextStepButtons();
+      return;
+    }
+
     const generatedText = data.output || 'No output returned';
 
     if (action === 'blueprint') {
@@ -838,12 +869,16 @@ async function generate(action) {
       saveCurrentProject();
     }
 
+    state.lastTextAction = action;
+    state.lastGeneratedText = generatedText;
+    clearImagePreview();
     renderStyledOutput(generatedText, action);
 
     result.classList.remove('hidden');
     renderNextStepButtons();
   } catch (e) {
     resetOutputToPlainText();
+    clearImagePreview();
     output.textContent = 'Error: ' + e.message;
     result.classList.remove('hidden');
   }
@@ -855,6 +890,17 @@ function renderNextStepButtons() {
   const old = document.getElementById('nextStepPanel');
   if (old) old.remove();
 
+  const canGenerateImage =
+    !!(state.lastGeneratedText || state.blueprint) &&
+    ['blueprint', 'page-prompts', 'cover-prompts', 'revise'].includes(state.lastTextAction || 'blueprint');
+
+  const imageButtonLabel =
+    state.lastTextAction === 'cover-prompts'
+      ? 'F. Generate Cover Image'
+      : state.lastTextAction === 'page-prompts'
+      ? 'F. Generate Page Preview Image'
+      : 'F. Generate Preview Image';
+
   const panel = document.createElement('div');
   panel.id = 'nextStepPanel';
   panel.innerHTML = `
@@ -865,6 +911,7 @@ function renderNextStepButtons() {
       <button class="choice next-step" data-action="print-map">C. Create Print Map</button>
       <button class="choice next-step" data-action="marketing">D. Create Marketing Extras</button>
       <button class="choice next-step" data-action="revise">E. Revise Blueprint</button>
+      ${canGenerateImage ? `<button class="choice" id="generateImageBtn">${imageButtonLabel}</button>` : ''}
       <button class="choice" id="saveProjectNow">Save Project</button>
       <button class="choice" id="openSavedProjects">Saved Projects (${getSavedProjects().length})</button>
     </div>
@@ -874,6 +921,11 @@ function renderNextStepButtons() {
   document.querySelectorAll('.next-step').forEach(btn => {
     btn.onclick = () => generate(btn.dataset.action);
   });
+
+  const generateImageBtn = document.getElementById('generateImageBtn');
+  if (generateImageBtn) {
+    generateImageBtn.onclick = () => generate('generate-image');
+  }
 
   document.getElementById('saveProjectNow').onclick = () => {
     saveCurrentProject();
@@ -1180,6 +1232,75 @@ function stripMarkdown(text) {
 }
 
 
+
+/* ---------------------------
+   IMAGE PREVIEW
+---------------------------- */
+
+function clearImagePreview() {
+  const existing = document.getElementById('imagePreviewPanel');
+  if (existing) existing.remove();
+  state.lastImagePrompt = '';
+  state.lastImageDataUrl = '';
+}
+
+function renderImagePreview(dataUrl, promptText, title = 'Preview Image') {
+  clearImagePreview();
+
+  const panel = document.createElement('div');
+  panel.id = 'imagePreviewPanel';
+  panel.style.marginTop = '18px';
+  panel.style.padding = '20px';
+  panel.style.border = '1px solid rgba(36,56,95,.14)';
+  panel.style.borderRadius = '18px';
+  panel.style.background = '#ffffff';
+  panel.style.boxShadow = '0 6px 18px rgba(36,56,95,.055)';
+
+  panel.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+      <div>
+        <div style="font-family:Georgia,serif;font-size:1.08rem;font-weight:700;color:#24385f;">${html(title)}</div>
+        <div style="font-size:.9rem;opacity:.72;">Your image preview was created from the current project result.</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button type="button" id="downloadImageBtn" style="border:1px solid rgba(36,56,95,.20);border-radius:999px;padding:10px 14px;background:#f7f3ea;color:#24385f;font-size:.82rem;font-weight:700;cursor:pointer;">Download Image</button>
+        <button type="button" id="copyImagePromptBtn" style="border:1px solid rgba(36,56,95,.20);border-radius:999px;padding:10px 14px;background:#f7f3ea;color:#24385f;font-size:.82rem;font-weight:700;cursor:pointer;">Copy Image Prompt</button>
+      </div>
+    </div>
+
+    <img
+      src="${dataUrl}"
+      alt="Gracefully Anchored generated preview"
+      style="display:block;width:100%;max-width:540px;margin:0 auto 16px;border-radius:16px;border:1px solid rgba(36,56,95,.14);box-shadow:0 12px 28px rgba(36,56,95,.10);"
+    >
+
+    <details>
+      <summary style="cursor:pointer;font-weight:700;color:#24385f;margin-bottom:10px;">Show image prompt</summary>
+      <div style="margin-top:10px;padding:14px;border-radius:14px;background:#faf8f3;border:1px solid rgba(36,56,95,.10);line-height:1.55;font-size:.95rem;color:#333;">${styledParagraphs(promptText || 'No image prompt returned.')}</div>
+    </details>
+  `;
+
+  result.appendChild(panel);
+
+  document.getElementById('downloadImageBtn').onclick = () => {
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = 'gracefully-anchored-preview.png';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
+  document.getElementById('copyImagePromptBtn').onclick = async () => {
+    await navigator.clipboard.writeText(promptText || '');
+    const btn = document.getElementById('copyImagePromptBtn');
+    const oldText = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(() => btn.textContent = oldText, 1200);
+  };
+}
+
+
 /* ---------------------------
    SAVED PROJECTS / CHARACTERS
 ---------------------------- */
@@ -1276,6 +1397,9 @@ function renderSavedProjects() {
       state.blueprint = p.blueprint || '';
       state.currentProjectId = p.id;
       state.step = buildQuestions().length;
+      state.lastTextAction = 'blueprint';
+      state.lastGeneratedText = state.blueprint || '';
+      clearImagePreview();
       renderStyledOutput(state.blueprint, 'blueprint');
       renderSummary();
       result.classList.remove('hidden');
@@ -1302,9 +1426,14 @@ function startNewProject() {
   state.titlePool = [];
   state.titleOffset = 0;
   state.titleTheme = '';
+  state.lastTextAction = '';
+  state.lastGeneratedText = '';
+  state.lastImagePrompt = '';
+  state.lastImageDataUrl = '';
   ui.pageByQuestion = {};
   ui.multiByQuestion = {};
   resetOutputToPlainText();
+  clearImagePreview();
   output.textContent = '';
   result.classList.add('hidden');
   render();
@@ -1333,6 +1462,7 @@ function attr(value) {
 
 document.getElementById('copyBtn').onclick = () => {
   const textToCopy =
+    state.lastGeneratedText ||
     output.dataset.rawText ||
     output.textContent ||
     '';
