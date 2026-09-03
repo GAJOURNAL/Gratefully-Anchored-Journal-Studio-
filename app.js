@@ -385,7 +385,7 @@ function renderSingle(q) {
     ${state.step === 0 ? `
       <div class="nav">
         <button id="accountButton">${html(accountButtonLabel())}</button>
-        <button id="savedProjects">Saved Projects</button>
+        <button id="savedProjects">Open My Saved Projects</button>
       </div>
     ` : ''}
     <div class="nav"><button id="back" ${state.step===0?'disabled':''}>Back</button></div>
@@ -802,7 +802,7 @@ function renderSummary() {
 
     ${state.blueprint ? `
       <div class="nav">
-        <button id="savedProjects">Saved Projects</button>
+        <button id="savedProjects">Open My Saved Projects</button>
         <button id="newProject">Start New Project</button>
       </div>` : ''}
 
@@ -934,7 +934,7 @@ function renderNextStepButtons() {
       <button class="choice next-step" data-action="revise">E. Revise Blueprint</button>
       ${canGenerateImage ? `<button class="choice" id="generateImageBtn">${imageButtonLabel}</button>` : ''}
       <button class="choice" id="saveProjectNow">Save Project</button>
-      <button class="choice" id="openSavedProjects">Saved Projects</button>
+      <button class="choice" id="openSavedProjects">Open My Saved Projects</button>
     </div>
   `;
   result.appendChild(panel);
@@ -958,11 +958,10 @@ function renderNextStepButtons() {
 
       await saveCurrentProject();
 
-      button.textContent = 'Saved to Cloud ✓';
-
-      setTimeout(() => {
-        button.textContent = oldText;
-      }, 1500);
+      button.textContent = 'Project Saved ✓';
+      button.style.background = '#e8f5e9';
+      button.style.borderColor = '#8abf8d';
+      button.style.color = '#1f5f2c';
     } catch (error) {
       alert('Cloud save failed: ' + error.message);
       button.textContent = oldText;
@@ -2534,7 +2533,7 @@ async function renderSavedProjects() {
 
       <div class="nav">
         <button id="backHome">
-          Back
+          Back to My Account
         </button>
       </div>
     `;
@@ -2543,7 +2542,7 @@ async function renderSavedProjects() {
       startNewProject;
 
     document.getElementById('backHome').onclick =
-      startNewProject;
+      renderAccountHome;
 
     document
       .querySelectorAll('.openSaved')
