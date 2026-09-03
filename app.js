@@ -6,6 +6,7 @@ const output = document.getElementById('output');
 const PROJECTS_KEY = 'gracefullyAnchoredProjectsV1';
 const CHARACTERS_KEY = 'gracefullyAnchoredCharactersV1';
 const CLOUD_SESSION_KEY = 'gracefullyAnchoredCloudSessionV1';
+const GUEST_MIGRATION_KEY = 'gracefullyAnchoredGuestProjectsForMigrationV1';
 
 const state = {
   step: 0,
@@ -381,7 +382,12 @@ function renderSingle(q) {
         </button>
       `).join('')}
     </div>
-    ${state.step === 0 ? `<div class="nav"><button id="savedProjects">Saved Projects</button></div>` : ''}
+    ${state.step === 0 ? `
+      <div class="nav">
+        <button id="accountButton">${html(accountButtonLabel())}</button>
+        <button id="savedProjects">Saved Projects</button>
+      </div>
+    ` : ''}
     <div class="nav"><button id="back" ${state.step===0?'disabled':''}>Back</button></div>
   `;
 
@@ -394,6 +400,10 @@ function renderSingle(q) {
   });
 
   bindBack();
+
+  const accountButton = document.getElementById('accountButton');
+  if (accountButton) accountButton.onclick = renderAccountHome;
+
   const sp = document.getElementById('savedProjects');
   if (sp) sp.onclick = renderSavedProjects;
 }
@@ -1349,6 +1359,27 @@ function storeCloudSession(session) {
   );
 }
 
+function clearCloudSession() {
+  localStorage.removeItem(CLOUD_SESSION_KEY);
+}
+
+function isRealAccountSession(session = getCloudSession()) {
+  return !!(
+    session?.access_token &&
+    session?.email
+  );
+}
+
+function accountButtonLabel() {
+  const session = getCloudSession();
+
+  if (isRealAccountSession(session)) {
+    return `My Account · ${session.email}`;
+  }
+
+  return 'Sign Up / Log In';
+}
+
 function cloudSessionIsFresh(session) {
   if (!session?.access_token || !session?.expires_at) return false;
 
@@ -1356,7 +1387,9 @@ function cloudSessionIsFresh(session) {
     Math.floor(Date.now() / 1000) + 90;
 }
 
-async function requestCloudSession(action, refreshToken = '') {
+async function requestCloudSession(action, payload = {}) {
+  const previousSession = getCloudSession();
+
   const response = await fetch(
     '/.netlify/functions/cloud-auth',
     {
@@ -1366,7 +1399,7 @@ async function requestCloudSession(action, refreshToken = '') {
       },
       body: JSON.stringify({
         action,
-        refresh_token: refreshToken
+        ...payload
       })
     }
   );
@@ -1389,15 +1422,40 @@ async function requestCloudSession(action, refreshToken = '') {
     );
   }
 
+  // With email confirmation turned on, signup can succeed
+  // before Supabase returns a login session.
+  if (
+    action === 'signup' &&
+    data.needs_confirmation &&
+    !data.access_token
+  ) {
+    return data;
+  }
+
   if (!data.access_token) {
     throw new Error(
       'Cloud sign-in did not return a session.'
     );
   }
 
-  storeCloudSession(data);
+  const session = {
+    ...data,
+    email:
+      data.email ||
+      (
+        action === 'refresh'
+          ? previousSession?.email || null
+          : null
+      ),
+    auth_mode:
+      data.email || previousSession?.email
+        ? 'account'
+        : 'anonymous'
+  };
 
-  return data;
+  storeCloudSession(session);
+
+  return session;
 }
 
 async function ensureCloudSession(forceRefresh = false) {
@@ -1414,17 +1472,481 @@ async function ensureCloudSession(forceRefresh = false) {
     try {
       return await requestCloudSession(
         'refresh',
-        session.refresh_token
+        {
+          refresh_token: session.refresh_token
+        }
       );
     } catch (refreshError) {
+      // Never silently switch a signed-in customer to a new
+      // anonymous user. That could make their projects appear missing.
+      if (isRealAccountSession(session)) {
+        clearCloudSession();
+
+        throw new Error(
+          'Your sign-in has expired. Please log in again.'
+        );
+      }
+
       console.warn(
-        'Cloud session refresh failed; creating a new anonymous session.',
+        'Guest cloud session refresh failed; creating a new anonymous session.',
         refreshError
       );
     }
   }
 
-  return await requestCloudSession('anonymous');
+  return await requestCloudSession(
+    'anonymous'
+  );
+}
+
+/* ---------------------------
+   USER ACCOUNTS
+---------------------------- */
+
+function renderAccountHome(message = '') {
+  result.classList.add('hidden');
+  bar.style.width = '0%';
+
+  const session = getCloudSession();
+
+  if (isRealAccountSession(session)) {
+    app.innerHTML = `
+      <h2>My Account</h2>
+
+      ${message ? `
+        <p style="
+          padding:12px 14px;
+          border-radius:12px;
+          background:#f5f7fb;
+          border:1px solid rgba(36,56,95,.12);
+        ">${html(message)}</p>
+      ` : ''}
+
+      <p>
+        You are signed in as
+        <b>${html(session.email)}</b>.
+      </p>
+
+      <p>
+        Projects saved to this account can be opened again
+        after you sign in on another browser or device.
+      </p>
+
+      <div class="choices">
+        <button type="button" class="choice" id="accountSavedProjects">
+          A. Open My Saved Projects
+        </button>
+
+        <button type="button" class="choice" id="accountContinue">
+          B. Continue Creating
+        </button>
+
+        <button type="button" class="choice" id="accountSignOut">
+          C. Sign Out
+        </button>
+      </div>
+    `;
+
+    document.getElementById('accountSavedProjects').onclick =
+      renderSavedProjects;
+
+    document.getElementById('accountContinue').onclick =
+      render;
+
+    document.getElementById('accountSignOut').onclick = () => {
+      clearCloudSession();
+      renderAccountHome(
+        'You have been signed out on this device.'
+      );
+    };
+
+    return;
+  }
+
+  app.innerHTML = `
+    <h2>Save Your Work Across Devices</h2>
+
+    ${message ? `
+      <p style="
+        padding:12px 14px;
+        border-radius:12px;
+        background:#f5f7fb;
+        border:1px solid rgba(36,56,95,.12);
+      ">${html(message)}</p>
+    ` : ''}
+
+    <p>
+      Create a free account or log in to keep your Gracefully
+      Anchored projects connected to you.
+    </p>
+
+    <div class="choices">
+      <button type="button" class="choice" id="showSignup">
+        A. Create My Account
+      </button>
+
+      <button type="button" class="choice" id="showLogin">
+        B. Log In
+      </button>
+
+      <button type="button" class="choice" id="continueGuest">
+        C. Continue Without an Account
+      </button>
+    </div>
+  `;
+
+  document.getElementById('showSignup').onclick =
+    () => renderAuthForm('signup');
+
+  document.getElementById('showLogin').onclick =
+    () => renderAuthForm('login');
+
+  document.getElementById('continueGuest').onclick =
+    render;
+}
+
+function renderAuthForm(mode, message = '') {
+  const isSignup = mode === 'signup';
+
+  result.classList.add('hidden');
+  bar.style.width = '0%';
+
+  app.innerHTML = `
+    <h2>${isSignup ? 'Create Your Account' : 'Welcome Back'}</h2>
+
+    ${message ? `
+      <p style="
+        padding:12px 14px;
+        border-radius:12px;
+        background:#fff8ec;
+        border:1px solid rgba(138,116,72,.20);
+      ">${html(message)}</p>
+    ` : ''}
+
+    <p>
+      ${isSignup
+        ? 'Use an email address and password to create your Gracefully Anchored account.'
+        : 'Log in to open projects saved to your account.'}
+    </p>
+
+    <label for="authEmail" style="display:block;margin:16px 0 6px;font-weight:700;">
+      Email
+    </label>
+    <input
+      id="authEmail"
+      type="email"
+      autocomplete="email"
+      placeholder="you@example.com"
+    >
+
+    <label for="authPassword" style="display:block;margin:16px 0 6px;font-weight:700;">
+      Password
+    </label>
+    <input
+      id="authPassword"
+      type="password"
+      autocomplete="${isSignup ? 'new-password' : 'current-password'}"
+      placeholder="${isSignup ? 'Create a password' : 'Enter your password'}"
+    >
+
+    ${isSignup ? `
+      <p style="font-size:.9rem;opacity:.75;">
+        After signup, check your email for the confirmation link.
+      </p>
+    ` : ''}
+
+    <p id="authStatus" class="hidden"></p>
+
+    <div class="nav">
+      <button type="button" id="authBack">Back</button>
+      <button type="button" id="authSubmit" class="primary">
+        ${isSignup ? 'Create Account' : 'Log In'}
+      </button>
+    </div>
+  `;
+
+  document.getElementById('authBack').onclick =
+    () => renderAccountHome();
+
+  document.getElementById('authSubmit').onclick =
+    () => submitAccountForm(mode);
+
+  document.getElementById('authPassword').addEventListener(
+    'keydown',
+    event => {
+      if (event.key === 'Enter') {
+        submitAccountForm(mode);
+      }
+    }
+  );
+}
+
+async function snapshotGuestProjectsForMigration() {
+  const session = getCloudSession();
+
+  if (isRealAccountSession(session)) {
+    return;
+  }
+
+  try {
+    const projects = await getSavedProjects();
+
+    if (projects.length) {
+      localStorage.setItem(
+        GUEST_MIGRATION_KEY,
+        JSON.stringify(projects)
+      );
+    }
+  } catch (error) {
+    console.warn(
+      'Could not prepare guest projects for account migration:',
+      error
+    );
+  }
+}
+
+async function migrateGuestProjectsToAccount() {
+  if (!isRealAccountSession()) return 0;
+
+  let projects = [];
+
+  try {
+    projects = JSON.parse(
+      localStorage.getItem(GUEST_MIGRATION_KEY) || '[]'
+    );
+  } catch {
+    projects = [];
+  }
+
+  if (!Array.isArray(projects) || !projects.length) {
+    localStorage.removeItem(GUEST_MIGRATION_KEY);
+    return 0;
+  }
+
+  let migrated = 0;
+
+  for (const project of projects) {
+    try {
+      await cloudProjectRequest(
+        'save',
+        {
+          project: {
+            id: null,
+            title: project.title || 'Untitled Project',
+            type: project.type || '',
+            theme: project.theme || '',
+            answers: project.answers || {},
+            blueprint: project.blueprint || ''
+          }
+        }
+      );
+
+      migrated += 1;
+    } catch (error) {
+      console.warn(
+        'A guest project could not be copied into the signed-in account:',
+        error
+      );
+    }
+  }
+
+  if (migrated === projects.length) {
+    localStorage.removeItem(GUEST_MIGRATION_KEY);
+  }
+
+  return migrated;
+}
+
+async function submitAccountForm(mode) {
+  const email =
+    document.getElementById('authEmail').value.trim();
+
+  const password =
+    document.getElementById('authPassword').value;
+
+  const submit =
+    document.getElementById('authSubmit');
+
+  const status =
+    document.getElementById('authStatus');
+
+  if (!email || !password) {
+    status.classList.remove('hidden');
+    status.textContent =
+      'Please enter both your email and password.';
+    return;
+  }
+
+  if (mode === 'signup' && password.length < 6) {
+    status.classList.remove('hidden');
+    status.textContent =
+      'Please create a password with at least 6 characters.';
+    return;
+  }
+
+  submit.disabled = true;
+  submit.textContent =
+    mode === 'signup'
+      ? 'Creating account...'
+      : 'Logging in...';
+
+  status.classList.remove('hidden');
+  status.textContent =
+    mode === 'signup'
+      ? 'Creating your account...'
+      : 'Signing you in...';
+
+  try {
+    await snapshotGuestProjectsForMigration();
+
+    const data = await requestCloudSession(
+      mode,
+      {
+        email,
+        password
+      }
+    );
+
+    if (
+      mode === 'signup' &&
+      data.needs_confirmation &&
+      !data.access_token
+    ) {
+      app.innerHTML = `
+        <h2>Check Your Email</h2>
+
+        <p>
+          We created the account for
+          <b>${html(email)}</b>.
+        </p>
+
+        <p>
+          Open the confirmation email from Gracefully Anchored,
+          click the confirmation link, and you will be returned
+          to the studio.
+        </p>
+
+        <div class="choices">
+          <button type="button" class="choice" id="confirmedThenLogin">
+            A. I Confirmed My Email — Log In
+          </button>
+
+          <button type="button" class="choice" id="backToStudioAfterSignup">
+            B. Back to the Studio
+          </button>
+        </div>
+      `;
+
+      document.getElementById('confirmedThenLogin').onclick =
+        () => renderAuthForm(
+          'login',
+          'Enter the email and password you just created.'
+        );
+
+      document.getElementById('backToStudioAfterSignup').onclick =
+        render;
+
+      return;
+    }
+
+    const migrated =
+      await migrateGuestProjectsToAccount();
+
+    renderAccountHome(
+      migrated
+        ? `${migrated} earlier saved project${migrated === 1 ? '' : 's'} were added to your account.`
+        : 'Your account is ready.'
+    );
+  } catch (error) {
+    submit.disabled = false;
+    submit.textContent =
+      mode === 'signup'
+        ? 'Create Account'
+        : 'Log In';
+
+    status.textContent = error.message;
+  }
+}
+
+function decodeJwtPayload(token) {
+  try {
+    const payload = token.split('.')[1];
+
+    if (!payload) return {};
+
+    const normalized =
+      payload
+        .replace(/-/g, '+')
+        .replace(/_/g, '/');
+
+    const padded =
+      normalized.padEnd(
+        normalized.length + (4 - normalized.length % 4) % 4,
+        '='
+      );
+
+    return JSON.parse(
+      decodeURIComponent(
+        Array.prototype.map.call(
+          atob(padded),
+          char =>
+            '%' +
+            ('00' + char.charCodeAt(0).toString(16)).slice(-2)
+        ).join('')
+      )
+    );
+  } catch {
+    return {};
+  }
+}
+
+function captureSupabaseSessionFromUrl() {
+  const hash =
+    window.location.hash?.replace(/^#/, '') || '';
+
+  if (!hash) return false;
+
+  const params = new URLSearchParams(hash);
+
+  const accessToken =
+    params.get('access_token');
+
+  const refreshToken =
+    params.get('refresh_token');
+
+  if (!accessToken || !refreshToken) {
+    return false;
+  }
+
+  const jwt = decodeJwtPayload(accessToken);
+
+  const expiresAt =
+    Number(params.get('expires_at')) ||
+    (
+      Number(params.get('expires_in'))
+        ? Math.floor(Date.now() / 1000) +
+          Number(params.get('expires_in'))
+        : Math.floor(Date.now() / 1000) + 3600
+    );
+
+  storeCloudSession({
+    success: true,
+    action: 'login',
+    auth_mode: 'account',
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    expires_at: expiresAt,
+    user_id: jwt.sub || null,
+    email: jwt.email || null
+  });
+
+  history.replaceState(
+    null,
+    document.title,
+    window.location.pathname + window.location.search
+  );
+
+  return true;
 }
 
 async function cloudProjectRequest(action, payload = {}, retry = true) {
@@ -1856,4 +2378,25 @@ document.getElementById('copyBtn').onclick = () => {
   navigator.clipboard.writeText(textToCopy);
 };
 
-render();
+async function initializeApp() {
+  const returnedFromEmailConfirmation =
+    captureSupabaseSessionFromUrl();
+
+  if (
+    returnedFromEmailConfirmation &&
+    isRealAccountSession()
+  ) {
+    try {
+      await migrateGuestProjectsToAccount();
+    } catch (error) {
+      console.warn(
+        'Project migration after email confirmation could not finish:',
+        error
+      );
+    }
+  }
+
+  render();
+}
+
+initializeApp();
