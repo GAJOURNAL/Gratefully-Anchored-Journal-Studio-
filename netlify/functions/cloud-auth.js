@@ -105,8 +105,6 @@ exports.handler = async function (event) {
         };
       }
 
-      // When email confirmation is enabled,
-      // Supabase may create the user without returning a session yet.
       const accessToken =
         data.access_token ||
         data.session?.access_token ||
@@ -198,6 +196,147 @@ exports.handler = async function (event) {
           expires_at: data.expires_at,
           user_id: data.user?.id || null,
           email: data.user?.email || email
+        })
+      };
+    }
+
+    // ------------------------------------------------
+    // SEND PASSWORD RESET EMAIL
+    // ------------------------------------------------
+    if (action === "forgot-password") {
+      const email = String(body.email || "").trim();
+
+      if (!email) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            error: "Email is required."
+          })
+        };
+      }
+
+      let redirectTo = String(body.redirect_to || "").trim();
+
+      if (!redirectTo) {
+        redirectTo = process.env.URL || "";
+      }
+
+      const recoverUrl =
+        redirectTo
+          ? `${supabaseUrl}/auth/v1/recover?redirect_to=${encodeURIComponent(redirectTo)}`
+          : `${supabaseUrl}/auth/v1/recover`;
+
+      response = await fetch(recoverUrl, {
+        method: "POST",
+        headers: authHeaders,
+        body: JSON.stringify({
+          email
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        return {
+          statusCode: response.status,
+          headers,
+          body: JSON.stringify({
+            error:
+              data.msg ||
+              data.message ||
+              data.error_description ||
+              data.error ||
+              "Could not send password reset email."
+          })
+        };
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          action: "forgot-password",
+          message:
+            "If an account exists for that email, a password reset link has been sent."
+        })
+      };
+    }
+
+    // ------------------------------------------------
+    // UPDATE PASSWORD AFTER RECOVERY LINK
+    // ------------------------------------------------
+    if (action === "update-password") {
+      const accessToken =
+        String(body.access_token || "").trim();
+
+      const password =
+        String(body.password || "");
+
+      if (!accessToken || !password) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            error:
+              "Recovery access token and new password are required."
+          })
+        };
+      }
+
+      if (password.length < 6) {
+        return {
+          statusCode: 400,
+          headers,
+          body: JSON.stringify({
+            error:
+              "Please choose a password with at least 6 characters."
+          })
+        };
+      }
+
+      response = await fetch(
+        `${supabaseUrl}/auth/v1/user`,
+        {
+          method: "PUT",
+          headers: {
+            apikey: publishableKey,
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            password
+          })
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return {
+          statusCode: response.status,
+          headers,
+          body: JSON.stringify({
+            error:
+              data.msg ||
+              data.message ||
+              data.error_description ||
+              data.error ||
+              "Could not update password."
+          })
+        };
+      }
+
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({
+          success: true,
+          action: "update-password",
+          user_id: data.id || null,
+          email: data.email || null,
+          message: "Password updated successfully."
         })
       };
     }
