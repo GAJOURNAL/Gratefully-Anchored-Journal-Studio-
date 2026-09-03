@@ -402,7 +402,7 @@ function renderSingle(q) {
   bindBack();
 
   const accountButton = document.getElementById('accountButton');
-  if (accountButton) accountButton.onclick = renderAccountHome;
+  if (accountButton) accountButton.onclick = () => renderAccountHome();
 
   const sp = document.getElementById('savedProjects');
   if (sp) sp.onclick = renderSavedProjects;
