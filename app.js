@@ -1632,6 +1632,141 @@ function renderAuthForm(mode, message = '') {
     <label for="authEmail" style="display:block;margin:16px 0 6px;font-weight:700;">
       Email
     </label>
+
+    <input
+      id="authEmail"
+      type="email"
+      autocomplete="email"
+      placeholder="you@example.com"
+    >
+
+    <label for="authPassword" style="display:block;margin:16px 0 6px;font-weight:700;">
+      Password
+    </label>
+
+    <div style="
+      position:relative;
+      display:flex;
+      align-items:center;
+      width:100%;
+    ">
+      <input
+        id="authPassword"
+        type="password"
+        autocomplete="${isSignup ? 'new-password' : 'current-password'}"
+        placeholder="${isSignup ? 'Create a password' : 'Enter your password'}"
+        style="
+          width:100%;
+          padding-right:50px;
+          box-sizing:border-box;
+        "
+      >
+
+      <button
+        type="button"
+        id="togglePassword"
+        aria-label="Show password"
+        title="Show password"
+        style="
+          position:absolute;
+          right:10px;
+          top:50%;
+          transform:translateY(-50%);
+          border:none;
+          background:transparent;
+          cursor:pointer;
+          font-size:1.2rem;
+          padding:6px;
+          line-height:1;
+        "
+      >👁</button>
+    </div>
+
+    ${isSignup ? `
+      <p style="font-size:.9rem;opacity:.75;">
+        After signup, check your email for the confirmation link.
+      </p>
+    ` : ''}
+
+    <p id="authStatus" class="hidden"></p>
+
+    <div class="nav">
+      <button type="button" id="authBack">Back</button>
+
+      <button type="button" id="authSubmit" class="primary">
+        ${isSignup ? 'Create Account' : 'Log In'}
+      </button>
+    </div>
+  `;
+
+  document.getElementById('authBack').onclick =
+    () => renderAccountHome();
+
+  document.getElementById('authSubmit').onclick =
+    () => submitAccountForm(mode);
+
+  const passwordInput =
+    document.getElementById('authPassword');
+
+  const togglePassword =
+    document.getElementById('togglePassword');
+
+  togglePassword.onclick = () => {
+    const showing =
+      passwordInput.type === 'text';
+
+    passwordInput.type =
+      showing ? 'password' : 'text';
+
+    togglePassword.textContent =
+      showing ? '👁' : '🙈';
+
+    togglePassword.setAttribute(
+      'aria-label',
+      showing ? 'Show password' : 'Hide password'
+    );
+
+    togglePassword.setAttribute(
+      'title',
+      showing ? 'Show password' : 'Hide password'
+    );
+  };
+
+  passwordInput.addEventListener(
+    'keydown',
+    event => {
+      if (event.key === 'Enter') {
+        submitAccountForm(mode);
+      }
+    }
+  );
+} renderAuthForm(mode, message = '') {
+  const isSignup = mode === 'signup';
+
+  result.classList.add('hidden');
+  bar.style.width = '0%';
+
+  app.innerHTML = `
+    <h2>${isSignup ? 'Create Your Account' : 'Welcome Back'}</h2>
+
+    ${message ? `
+      <p style="
+        padding:12px 14px;
+        border-radius:12px;
+        background:#fff8ec;
+        border:1px solid rgba(138,116,72,.20);
+      ">${html(message)}</p>
+    ` : ''}
+
+    <p>
+      ${isSignup
+        ? 'Use an email address and password to create your Gracefully Anchored account.'
+        : 'Log in to open projects saved to your account.'}
+    </p>
+
+    <label for="authEmail" style="display:block;margin:16px 0 6px;font-weight:700;">
+      Email
+    </label>
     <input
       id="authEmail"
       type="email"
