@@ -1432,6 +1432,14 @@ async function requestCloudSession(action, payload = {}) {
     return data;
   }
 
+  // These actions succeed without returning a normal login session.
+  if (
+    action === 'forgot-password' ||
+    action === 'update-password'
+  ) {
+    return data;
+  }
+
   if (!data.access_token) {
     throw new Error(
       'Cloud sign-in did not return a session.'
@@ -1664,9 +1672,25 @@ function renderAuthForm(mode, message = '') {
 
     ${isSignup ? `
       <p style="font-size:.9rem;opacity:.75;">
-        After signup, check your email for the confirmation link.
+        After signup, check your email for the confirmation link when email confirmation is enabled.
       </p>
-    ` : ''}
+    ` : `
+      <div style="margin-top:10px;">
+        <button
+          type="button"
+          id="forgotPassword"
+          style="
+            border:none;
+            background:transparent;
+            color:#24385f;
+            padding:0;
+            font-weight:700;
+            cursor:pointer;
+            text-decoration:underline;
+          "
+        >Forgot Password?</button>
+      </div>
+    `}
 
     <p id="authStatus" class="hidden"></p>
 
@@ -1684,6 +1708,18 @@ function renderAuthForm(mode, message = '') {
   document.getElementById('authSubmit').onclick =
     () => submitAccountForm(mode);
 
+  const forgotPassword =
+    document.getElementById('forgotPassword');
+
+  if (forgotPassword) {
+    forgotPassword.onclick = () => {
+      const email =
+        document.getElementById('authEmail').value.trim();
+
+      renderForgotPasswordForm(email);
+    };
+  }
+
   const passwordInput =
     document.getElementById('authPassword');
 
@@ -1695,8 +1731,14 @@ function renderAuthForm(mode, message = '') {
 
     passwordInput.type = showing ? 'password' : 'text';
     togglePassword.textContent = showing ? '👁' : '🙈';
-    togglePassword.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
-    togglePassword.setAttribute('title', showing ? 'Show password' : 'Hide password');
+    togglePassword.setAttribute(
+      'aria-label',
+      showing ? 'Show password' : 'Hide password'
+    );
+    togglePassword.setAttribute(
+      'title',
+      showing ? 'Show password' : 'Hide password'
+    );
   };
 
   passwordInput.addEventListener(
@@ -1707,6 +1749,273 @@ function renderAuthForm(mode, message = '') {
       }
     }
   );
+}
+
+function renderForgotPasswordForm(prefilledEmail = '', message = '') {
+  result.classList.add('hidden');
+  bar.style.width = '0%';
+
+  app.innerHTML = `
+    <h2>Reset Your Password</h2>
+
+    ${message ? `
+      <p style="
+        padding:12px 14px;
+        border-radius:12px;
+        background:#f5f7fb;
+        border:1px solid rgba(36,56,95,.12);
+      ">${html(message)}</p>
+    ` : ''}
+
+    <p>
+      Enter the email address for your account.
+      We will send you a password-reset link.
+    </p>
+
+    <label for="resetEmail" style="display:block;margin:16px 0 6px;font-weight:700;">
+      Email
+    </label>
+
+    <input
+      id="resetEmail"
+      type="email"
+      autocomplete="email"
+      value="${attr(prefilledEmail)}"
+      placeholder="you@example.com"
+    >
+
+    <p id="resetStatus" class="hidden"></p>
+
+    <div class="nav">
+      <button type="button" id="resetBack">Back to Log In</button>
+      <button type="button" id="sendReset" class="primary">
+        Send Reset Link
+      </button>
+    </div>
+  `;
+
+  document.getElementById('resetBack').onclick =
+    () => renderAuthForm('login');
+
+  document.getElementById('sendReset').onclick =
+    sendPasswordResetEmail;
+
+  document.getElementById('resetEmail').addEventListener(
+    'keydown',
+    event => {
+      if (event.key === 'Enter') {
+        sendPasswordResetEmail();
+      }
+    }
+  );
+}
+
+async function sendPasswordResetEmail() {
+  const email =
+    document.getElementById('resetEmail').value.trim();
+
+  const submit =
+    document.getElementById('sendReset');
+
+  const status =
+    document.getElementById('resetStatus');
+
+  if (!email) {
+    status.classList.remove('hidden');
+    status.textContent = 'Please enter your email address.';
+    return;
+  }
+
+  submit.disabled = true;
+  submit.textContent = 'Sending...';
+  status.classList.remove('hidden');
+  status.textContent = 'Sending your reset link...';
+
+  try {
+    await requestCloudSession(
+      'forgot-password',
+      {
+        email,
+        redirect_to:
+          window.location.origin + window.location.pathname
+      }
+    );
+
+    app.innerHTML = `
+      <h2>Check Your Email</h2>
+
+      <p>
+        If an account exists for <b>${html(email)}</b>,
+        a password-reset link has been sent.
+      </p>
+
+      <p>
+        Open the email and tap the reset link.
+        You will return to the studio to choose a new password.
+      </p>
+
+      <div class="choices">
+        <button type="button" class="choice" id="backToLoginAfterReset">
+          Back to Log In
+        </button>
+      </div>
+    `;
+
+    document.getElementById('backToLoginAfterReset').onclick =
+      () => renderAuthForm('login');
+  } catch (error) {
+    submit.disabled = false;
+    submit.textContent = 'Send Reset Link';
+    status.textContent = error.message;
+  }
+}
+
+function renderNewPasswordForm(accessToken) {
+  result.classList.add('hidden');
+  bar.style.width = '0%';
+
+  app.innerHTML = `
+    <h2>Choose a New Password</h2>
+
+    <p>
+      Enter your new password below.
+    </p>
+
+    <label for="newPassword" style="display:block;margin:16px 0 6px;font-weight:700;">
+      New Password
+    </label>
+
+    <div style="position:relative;display:flex;align-items:center;width:100%;">
+      <input
+        id="newPassword"
+        type="password"
+        autocomplete="new-password"
+        placeholder="Enter a new password"
+        style="width:100%;padding-right:50px;box-sizing:border-box;"
+      >
+      <button
+        type="button"
+        id="toggleNewPassword"
+        aria-label="Show password"
+        title="Show password"
+        style="position:absolute;right:10px;top:50%;transform:translateY(-50%);border:none;background:transparent;cursor:pointer;font-size:1.2rem;padding:6px;line-height:1;"
+      >👁</button>
+    </div>
+
+    <label for="confirmNewPassword" style="display:block;margin:16px 0 6px;font-weight:700;">
+      Confirm New Password
+    </label>
+
+    <div style="position:relative;display:flex;align-items:center;width:100%;">
+      <input
+        id="confirmNewPassword"
+        type="password"
+        autocomplete="new-password"
+        placeholder="Enter the new password again"
+        style="width:100%;padding-right:50px;box-sizing:border-box;"
+      >
+      <button
+        type="button"
+        id="toggleConfirmNewPassword"
+        aria-label="Show password"
+        title="Show password"
+        style="position:absolute;right:10px;top:50%;transform:translateY(-50%);border:none;background:transparent;cursor:pointer;font-size:1.2rem;padding:6px;line-height:1;"
+      >👁</button>
+    </div>
+
+    <p id="newPasswordStatus" class="hidden"></p>
+
+    <div class="nav">
+      <button type="button" id="saveNewPassword" class="primary">
+        Save New Password
+      </button>
+    </div>
+  `;
+
+  bindPasswordToggle('newPassword', 'toggleNewPassword');
+  bindPasswordToggle(
+    'confirmNewPassword',
+    'toggleConfirmNewPassword'
+  );
+
+  document.getElementById('saveNewPassword').onclick =
+    () => submitNewPassword(accessToken);
+}
+
+function bindPasswordToggle(inputId, buttonId) {
+  const input = document.getElementById(inputId);
+  const button = document.getElementById(buttonId);
+
+  if (!input || !button) return;
+
+  button.onclick = () => {
+    const showing = input.type === 'text';
+
+    input.type = showing ? 'password' : 'text';
+    button.textContent = showing ? '👁' : '🙈';
+    button.setAttribute(
+      'aria-label',
+      showing ? 'Show password' : 'Hide password'
+    );
+    button.setAttribute(
+      'title',
+      showing ? 'Show password' : 'Hide password'
+    );
+  };
+}
+
+async function submitNewPassword(accessToken) {
+  const password =
+    document.getElementById('newPassword').value;
+
+  const confirmPassword =
+    document.getElementById('confirmNewPassword').value;
+
+  const submit =
+    document.getElementById('saveNewPassword');
+
+  const status =
+    document.getElementById('newPasswordStatus');
+
+  if (password.length < 6) {
+    status.classList.remove('hidden');
+    status.textContent =
+      'Please choose a password with at least 6 characters.';
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    status.classList.remove('hidden');
+    status.textContent =
+      'The two passwords do not match.';
+    return;
+  }
+
+  submit.disabled = true;
+  submit.textContent = 'Saving...';
+  status.classList.remove('hidden');
+  status.textContent = 'Updating your password...';
+
+  try {
+    await requestCloudSession(
+      'update-password',
+      {
+        access_token: accessToken,
+        password
+      }
+    );
+
+    clearCloudSession();
+
+    renderAuthForm(
+      'login',
+      'Your password was updated. Log in with your new password.'
+    );
+  } catch (error) {
+    submit.disabled = false;
+    submit.textContent = 'Save New Password';
+    status.textContent = error.message;
+  }
 }
 
 async function snapshotGuestProjectsForMigration() {
@@ -1932,7 +2241,13 @@ function captureSupabaseSessionFromUrl() {
   const hash =
     window.location.hash?.replace(/^#/, '') || '';
 
-  if (!hash) return false;
+  if (!hash) {
+    return {
+      captured: false,
+      type: '',
+      accessToken: ''
+    };
+  }
 
   const params = new URLSearchParams(hash);
 
@@ -1942,8 +2257,15 @@ function captureSupabaseSessionFromUrl() {
   const refreshToken =
     params.get('refresh_token');
 
+  const type =
+    params.get('type') || '';
+
   if (!accessToken || !refreshToken) {
-    return false;
+    return {
+      captured: false,
+      type,
+      accessToken: accessToken || ''
+    };
   }
 
   const jwt = decodeJwtPayload(accessToken);
@@ -1959,7 +2281,7 @@ function captureSupabaseSessionFromUrl() {
 
   storeCloudSession({
     success: true,
-    action: 'login',
+    action: type === 'recovery' ? 'recovery' : 'login',
     auth_mode: 'account',
     access_token: accessToken,
     refresh_token: refreshToken,
@@ -1974,7 +2296,11 @@ function captureSupabaseSessionFromUrl() {
     window.location.pathname + window.location.search
   );
 
-  return true;
+  return {
+    captured: true,
+    type,
+    accessToken
+  };
 }
 
 async function cloudProjectRequest(action, payload = {}, retry = true) {
@@ -2407,11 +2733,21 @@ document.getElementById('copyBtn').onclick = () => {
 };
 
 async function initializeApp() {
-  const returnedFromEmailConfirmation =
+  const authReturn =
     captureSupabaseSessionFromUrl();
 
   if (
-    returnedFromEmailConfirmation &&
+    authReturn.captured &&
+    authReturn.type === 'recovery'
+  ) {
+    renderNewPasswordForm(
+      authReturn.accessToken
+    );
+    return;
+  }
+
+  if (
+    authReturn.captured &&
     isRealAccountSession()
   ) {
     try {
