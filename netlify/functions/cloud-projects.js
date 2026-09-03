@@ -226,13 +226,16 @@ exports.handler = async event => {
     } =
       JSON.parse(event.body || "{}");
 
+    // -----------------------------------------
+    // LIST SAVED PROJECTS
+    // -----------------------------------------
     if (action === "list") {
       const result =
         await dataRequest(
           url,
           publishableKey,
           accessToken,
-          "projects?select=id,title,type,theme,answers,blueprint,created_at,updated_at&order=updated_at.desc"
+          "Projects?select=id,title,type,theme,answers,blueprint,created_at,updated_at&order=updated_at.desc"
         );
 
       if (!result.ok) {
@@ -258,6 +261,9 @@ exports.handler = async event => {
       );
     }
 
+    // -----------------------------------------
+    // SAVE OR UPDATE PROJECT
+    // -----------------------------------------
     if (action === "save") {
       const now =
         new Date().toISOString();
@@ -288,7 +294,7 @@ exports.handler = async event => {
             url,
             publishableKey,
             accessToken,
-            `projects?id=eq.${encodeURIComponent(project.id)}`,
+            `Projects?id=eq.${encodeURIComponent(project.id)}`,
             {
               method: "PATCH",
               body: record,
@@ -302,7 +308,7 @@ exports.handler = async event => {
             url,
             publishableKey,
             accessToken,
-            "projects",
+            "Projects",
             {
               method: "POST",
               body: record,
@@ -347,6 +353,9 @@ exports.handler = async event => {
       );
     }
 
+    // -----------------------------------------
+    // DELETE PROJECT
+    // -----------------------------------------
     if (action === "delete") {
       if (!id) {
         return respond(
@@ -363,7 +372,7 @@ exports.handler = async event => {
           url,
           publishableKey,
           accessToken,
-          `projects?id=eq.${encodeURIComponent(id)}`,
+          `Projects?id=eq.${encodeURIComponent(id)}`,
           {
             method: "DELETE",
             prefer:
