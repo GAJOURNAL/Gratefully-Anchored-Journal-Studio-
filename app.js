@@ -7,6 +7,7 @@ const PROJECTS_KEY = 'gracefullyAnchoredProjectsV1';
 const CHARACTERS_KEY = 'gracefullyAnchoredCharactersV1';
 const CLOUD_SESSION_KEY = 'gracefullyAnchoredCloudSessionV1';
 const GUEST_MIGRATION_KEY = 'gracefullyAnchoredGuestProjectsForMigrationV1';
+const MARKETING_OPTIN_KEY = 'gracefullyAnchoredPendingMarketingOptInV1';
 
 const state = {
   step: 0,
@@ -1548,8 +1549,12 @@ function renderAccountHome(message = '') {
           B. Continue Creating
         </button>
 
+        <button type="button" class="choice" id="accountMarketingPreferences">
+          C. Marketing Preferences
+        </button>
+
         <button type="button" class="choice" id="accountSignOut">
-          C. Sign Out
+          D. Sign Out
         </button>
       </div>
     `;
@@ -1559,6 +1564,9 @@ function renderAccountHome(message = '') {
 
     document.getElementById('accountContinue').onclick =
       render;
+
+    document.getElementById('accountMarketingPreferences').onclick =
+      renderMarketingPreferences;
 
     document.getElementById('accountSignOut').onclick = () => {
       clearCloudSession();
@@ -1670,6 +1678,20 @@ function renderAuthForm(mode, message = '') {
     </div>
 
     ${isSignup ? `
+      <label style="display:flex;gap:10px;align-items:flex-start;margin:16px 0 10px;line-height:1.45;cursor:pointer;">
+        <input
+          id="marketingOptIn"
+          type="checkbox"
+          style="width:auto;margin-top:4px;flex:0 0 auto;"
+        >
+        <span>
+          Yes, send me Gracefully Anchored updates, new products, devotionals, and special offers.
+          <span style="display:block;font-size:.84rem;opacity:.72;margin-top:4px;">
+            Optional. You can unsubscribe anytime in My Account.
+          </span>
+        </span>
+      </label>
+
       <p style="font-size:.9rem;opacity:.75;">
         After signup, check your email for the confirmation link when email confirmation is enabled.
       </p>
@@ -2106,6 +2128,10 @@ async function submitAccountForm(mode) {
   const status =
     document.getElementById('authStatus');
 
+  const marketingOptIn =
+    mode === 'signup' &&
+    !!document.getElementById('marketingOptIn')?.checked;
+
   if (!email || !password) {
     status.classList.remove('hidden');
     status.textContent =
@@ -2142,6 +2168,13 @@ async function submitAccountForm(mode) {
         password
       }
     );
+
+    if (mode === 'signup' && marketingOptIn) {
+      localStorage.setItem(
+        MARKETING_OPTIN_KEY,
+        JSON.stringify({ email, consent: true, source: 'account_signup' })
+      );
+    }
 
     if (
       mode === 'signup' &&
@@ -2187,6 +2220,12 @@ async function submitAccountForm(mode) {
 
     const migrated =
       await migrateGuestProjectsToAccount();
+
+    try {
+      await syncPendingMarketingPreference();
+    } catch (marketingError) {
+      console.warn('Marketing preference could not be synced yet:', marketingError);
+    }
 
     renderAccountHome(
       migrated
@@ -2300,6 +2339,178 @@ function captureSupabaseSessionFromUrl() {
     type,
     accessToken
   };
+}
+
+async function cloudSubscriberRequest(action, payload = {}, retry = true) {
+  const session = await ensureCloudSession();
+
+  if (!isRealAccountSession(session)) {
+    throw new Error('Please log in to manage marketing preferences.');
+  }
+
+  const response = await fetch(
+    '/.netlify/functions/cloud-subscribers',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`
+      },
+      body: JSON.stringify({
+        action,
+        ...payload
+      })
+    }
+  );
+
+  const raw = await response.text();
+  let data;
+
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error('Marketing preferences returned an unexpected response.');
+  }
+
+  if (response.status === 401 && retry) {
+    await ensureCloudSession(true);
+    return cloudSubscriberRequest(action, payload, false);
+  }
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Marketing preference request failed.');
+  }
+
+  return data;
+}
+
+async function syncPendingMarketingPreference() {
+  const session = getCloudSession();
+  if (!isRealAccountSession(session)) return;
+
+  let pending = null;
+
+  try {
+    pending = JSON.parse(localStorage.getItem(MARKETING_OPTIN_KEY) || 'null');
+  } catch {
+    pending = null;
+  }
+
+  if (!pending?.consent) return;
+
+  if (
+    pending.email &&
+    session.email &&
+    pending.email.toLowerCase() !== session.email.toLowerCase()
+  ) {
+    return;
+  }
+
+  await cloudSubscriberRequest('set', {
+    consent: true,
+    source: pending.source || 'account_signup'
+  });
+
+  localStorage.removeItem(MARKETING_OPTIN_KEY);
+}
+
+async function renderMarketingPreferences(message = '') {
+  result.classList.add('hidden');
+  bar.style.width = '0%';
+
+  const session = getCloudSession();
+
+  if (!isRealAccountSession(session)) {
+    renderAccountHome('Please log in to manage marketing preferences.');
+    return;
+  }
+
+  app.innerHTML = `
+    <h2>Marketing Preferences</h2>
+    <p>Loading your preference...</p>
+  `;
+
+  try {
+    await syncPendingMarketingPreference();
+
+    const data = await cloudSubscriberRequest('get');
+    const subscribed = !!data.subscriber?.consent;
+
+    app.innerHTML = `
+      <h2>Marketing Preferences</h2>
+
+      ${message ? `
+        <p style="padding:12px 14px;border-radius:12px;background:#f5f7fb;border:1px solid rgba(36,56,95,.12);">
+          ${html(message)}
+        </p>
+      ` : ''}
+
+      <p>
+        Signed in as <b>${html(session.email)}</b>.
+      </p>
+
+      <p style="padding:12px 14px;border-radius:12px;background:${subscribed ? '#e8f5e9' : '#f7f3ea'};border:1px solid rgba(36,56,95,.12);">
+        <b>Status:</b> ${subscribed ? 'Subscribed ✓' : 'Not subscribed'}
+      </p>
+
+      <p>
+        ${subscribed
+          ? 'You are currently signed up for Gracefully Anchored updates, new products, devotionals, and special offers.'
+          : 'You are not currently signed up for marketing emails. Your Journal Studio account still works normally.'}
+      </p>
+
+      <div class="choices">
+        <button type="button" class="choice" id="toggleMarketingPreference">
+          ${subscribed ? 'Unsubscribe from Marketing Emails' : 'Subscribe to Updates & Offers'}
+        </button>
+
+        <button type="button" class="choice" id="backToAccountFromMarketing">
+          Back to My Account
+        </button>
+      </div>
+
+      <p id="marketingPreferenceStatus" class="hidden"></p>
+    `;
+
+    document.getElementById('backToAccountFromMarketing').onclick =
+      () => renderAccountHome();
+
+    document.getElementById('toggleMarketingPreference').onclick = async () => {
+      const button = document.getElementById('toggleMarketingPreference');
+      const status = document.getElementById('marketingPreferenceStatus');
+
+      button.disabled = true;
+      status.classList.remove('hidden');
+      status.textContent = subscribed ? 'Unsubscribing...' : 'Subscribing...';
+
+      try {
+        await cloudSubscriberRequest('set', {
+          consent: !subscribed,
+          source: subscribed ? 'account_preferences' : 'account_preferences'
+        });
+
+        renderMarketingPreferences(
+          subscribed
+            ? 'You have been unsubscribed from marketing emails.'
+            : 'You are now subscribed to Gracefully Anchored updates and offers.'
+        );
+      } catch (error) {
+        button.disabled = false;
+        status.textContent = error.message;
+      }
+    };
+  } catch (error) {
+    app.innerHTML = `
+      <h2>Marketing Preferences</h2>
+      <p>${html(error.message)}</p>
+      <div class="nav">
+        <button type="button" id="backToAccountFromMarketing">Back to My Account</button>
+      </div>
+    `;
+
+    document.getElementById('backToAccountFromMarketing').onclick =
+      () => renderAccountHome();
+  }
 }
 
 async function cloudProjectRequest(action, payload = {}, retry = true) {
