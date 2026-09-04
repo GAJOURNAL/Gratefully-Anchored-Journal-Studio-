@@ -1566,7 +1566,7 @@ function renderAccountHome(message = '') {
       render;
 
     document.getElementById('accountMarketingPreferences').onclick =
-      renderMarketingPreferences;
+      () => renderMarketingPreferences();
 
     document.getElementById('accountSignOut').onclick = () => {
       clearCloudSession();
