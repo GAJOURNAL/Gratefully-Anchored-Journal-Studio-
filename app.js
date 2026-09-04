@@ -8,6 +8,7 @@ const CHARACTERS_KEY = 'gracefullyAnchoredCharactersV1';
 const CLOUD_SESSION_KEY = 'gracefullyAnchoredCloudSessionV1';
 const GUEST_MIGRATION_KEY = 'gracefullyAnchoredGuestProjectsForMigrationV1';
 const MARKETING_OPTIN_KEY = 'gracefullyAnchoredPendingMarketingOptInV1';
+const OWNER_ACCESS_EMAIL = 'anchoredinspirations@gmail.com';
 
 const state = {
   step: 0,
@@ -2942,35 +2943,118 @@ document.getElementById('copyBtn').onclick = () => {
   navigator.clipboard.writeText(textToCopy);
 };
 
-async function initializeApp() {
-  const authReturn =
-    captureSupabaseSessionFromUrl();
 
-  if (
-    authReturn.captured &&
-    authReturn.type === 'recovery'
-  ) {
-    renderNewPasswordForm(
-      authReturn.accessToken
-    );
+/* ---------------------------
+   TEMPORARY PAID ACCESS LOCK
+   Owner account can bypass this screen.
+---------------------------- */
+
+function hasOwnerAccess(session = getCloudSession()) {
+  return !!(
+    session?.email &&
+    String(session.email).toLowerCase() === OWNER_ACCESS_EMAIL.toLowerCase()
+  );
+}
+
+function renderPaidAccessComingSoon() {
+  result.classList.add('hidden');
+  bar.style.width = '0%';
+
+  const session = getCloudSession();
+  const ownerSignedIn = hasOwnerAccess(session);
+
+  app.innerHTML = `
+    <div style="
+      max-width:680px;
+      margin:36px auto;
+      padding:34px 28px;
+      text-align:center;
+      background:#fffdf9;
+      border:1px solid rgba(36,56,95,.14);
+      border-radius:22px;
+      box-shadow:0 12px 32px rgba(36,56,95,.08);
+    ">
+      <div style="
+        font-family:Georgia,'Times New Roman',serif;
+        font-size:2rem;
+        line-height:1.2;
+        font-weight:700;
+        color:#24385f;
+        margin-bottom:12px;
+      ">
+        Gracefully Anchored Journal Studio
+      </div>
+
+      <div style="
+        font-family:Georgia,'Times New Roman',serif;
+        font-size:1.25rem;
+        font-weight:700;
+        color:#8a7448;
+        margin-bottom:18px;
+      ">
+        Paid Access Coming Soon
+      </div>
+
+      <p style="
+        max-width:540px;
+        margin:0 auto 14px;
+        line-height:1.7;
+        color:#333;
+      ">
+        The Journal Studio is currently preparing for its paid launch.
+        New access is temporarily closed while secure payment access is being completed.
+      </p>
+
+      <p style="
+        max-width:540px;
+        margin:0 auto;
+        line-height:1.7;
+        color:#333;
+      ">
+        Please check back soon for access to Christian journal, devotional,
+        workbook, cover, text, and image creation tools.
+      </p>
+
+      <div class="choices" style="margin-top:24px;">
+        ${
+          ownerSignedIn
+            ? `<button type="button" class="choice" id="ownerEnterStudio">Owner Access · Enter Studio</button>`
+            : `<button type="button" class="choice" id="ownerLogin">Owner Sign In</button>`
+        }
+      </div>
+
+      <div style="
+        margin-top:24px;
+        padding-top:18px;
+        border-top:1px solid rgba(36,56,95,.10);
+        font-size:.92rem;
+        color:#666;
+      ">
+        Gracefully Anchored Journal Studio · Paid access required at launch
+      </div>
+    </div>
+  `;
+
+  const ownerEnterStudio = document.getElementById('ownerEnterStudio');
+  if (ownerEnterStudio) {
+    ownerEnterStudio.onclick = () => render();
+  }
+
+  const ownerLogin = document.getElementById('ownerLogin');
+  if (ownerLogin) {
+    ownerLogin.onclick = () => renderLogin('owner');
+  }
+}
+
+async function initializeApp() {
+  const session = getCloudSession();
+
+  if (hasOwnerAccess(session)) {
+    render();
     return;
   }
 
-  if (
-    authReturn.captured &&
-    isRealAccountSession()
-  ) {
-    try {
-      await migrateGuestProjectsToAccount();
-    } catch (error) {
-      console.warn(
-        'Project migration after email confirmation could not finish:',
-        error
-      );
-    }
-  }
-
-  render();
+  renderPaidAccessComingSoon();
 }
 
 initializeApp();
